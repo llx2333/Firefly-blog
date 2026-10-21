@@ -5,7 +5,7 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
-# Pages 部署需要的权限
+# Pages 部署需要的权限 
 permissions:
   contents: read
   pages: write
