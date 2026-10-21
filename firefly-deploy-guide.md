@@ -3,6 +3,10 @@
 > 适用仓库：https://github.com/CuteLeaf/Firefly （master 分支）
 > 本教程事实来源：仓库 `package.json`（v6.16.8）、`astro.config.mjs`、`.github/workflows/deploy.yml`、README 与官方文档 `docs-firefly.cuteleaf.cn/zh/guide/getting-started.html` 的实际读取结果。
 > 关键版本：Node ≥ 22.23.0（`engines.node`）、pnpm 11.22.0（`packageManager`）、Astro 7.3.2。
+>
+> ⚠️ **2026-10-21 更新**：你实际建的是 **Cloudflare Worker**（Workers Builds 从 Git 自动构建），**不是** Cloudflare Pages 项目。
+> 所以本文件第 1 节（Cloudflare Pages）与你的现状不符，云端的实操请看 **`firefly-cf-guide.md`**；
+> 改外观/UI 看 **`firefly-customize-guide.md`**。第 2 节 GitHub Pages 部分仍然有效。
 
 ---
 
