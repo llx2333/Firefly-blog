@@ -65,9 +65,11 @@ const adapter = process.env.CF_WORKERS
 		})
 	: undefined;
 
+const siteUrl = process.env.SITE_URL || siteConfig.site_url;
+
 // https://astro.build/config
 export default defineConfig({
-	site: siteConfig.site_url,
+	site: siteUrl,
 
 	base: "/",
 	trailingSlash: "always",
@@ -314,7 +316,7 @@ export default defineConfig({
 					rehypeImageReferrerPolicy,
 					{ domains: siteConfig.imageOptimization?.noReferrerDomains || [] },
 				],
-				[rehypeExternalLinks, { siteUrl: siteConfig.site_url }],
+				[rehypeExternalLinks, { siteUrl: siteUrl }],
 				[rehypeEmailProtection, { method: "base64" }], // 邮箱保护插件，支持 'base64' 或 'rot13'
 				[
 					rehypeComponents,
