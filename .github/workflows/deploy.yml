@@ -41,7 +41,7 @@ jobs:
         run: pnpm run build
         env:
           SITE_URL: https://llx2333.github.io
-          BASE_PATH: /Firefly-blog
+          BASE_PATH: /
 
       - name: Create .nojekyll file
         run: touch dist/.nojekyll
