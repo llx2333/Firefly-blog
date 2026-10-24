@@ -354,6 +354,9 @@ export const zh_CN: Translation = {
 	// 置顶
 	[Key.pinned]: "置顶",
 
+	// 草稿
+	[Key.draft]: "草稿",
+
 	// 相关文章推荐
 	[Key.relatedPosts]: "相关文章",
 	[Key.randomPosts]: "随机文章",

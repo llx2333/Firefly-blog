@@ -365,6 +365,9 @@ export const ru: Translation = {
 	// Закреплено
 	[Key.pinned]: "Закреплено",
 
+	// Черновик
+	[Key.draft]: "Черновик",
+
 	// Похожие статьи
 	[Key.relatedPosts]: "Похожие статьи",
 	[Key.randomPosts]: "Случайные статьи",

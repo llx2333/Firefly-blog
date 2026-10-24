@@ -361,6 +361,9 @@ export const ja: Translation = {
 	// ピン留め
 	[Key.pinned]: "ピン留め",
 
+	// 下書き
+	[Key.draft]: "下書き",
+
 	// 関連記事
 	[Key.relatedPosts]: "関連記事",
 	[Key.randomPosts]: "ランダム記事",

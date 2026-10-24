@@ -356,6 +356,9 @@ export const zh_TW: Translation = {
 	// 置頂
 	[Key.pinned]: "置頂",
 
+	// 草稿
+	[Key.draft]: "草稿",
+
 	// 相關文章推薦
 	[Key.relatedPosts]: "相關文章",
 	[Key.randomPosts]: "隨機文章",

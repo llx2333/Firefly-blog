@@ -6,6 +6,8 @@ import CoverImage from "@/components/common/CoverImage.astro";
 import PostMetadata from "@/components/layout/PostMeta.astro";
 import PostStats from "@/components/layout/PostStats.astro";
 import { siteConfig } from "@/config";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
 import { getApiUrlList, processCoverImageSync } from "@/utils/image-utils";
 import { getFileDirFromPath, getTagUrl } from "@/utils/url-utils";
 
@@ -37,6 +39,7 @@ const {
 	description,
 	pinned,
 	password,
+	draft,
 	style,
 	loading = "lazy",
 } = Astro.props;
@@ -132,6 +135,15 @@ const minutes = remarkPluginFrontmatter.minutes;
         before:absolute before:top-[35px] before:left-[18px] before:hidden md:before:block"
     >
       {title}
+
+      {
+        draft && (
+          <span class="draft-badge ml-2 inline-flex items-center gap-1 rounded-md bg-(--btn-regular-bg) px-2 py-1 align-middle text-sm font-bold text-(--btn-content)">
+            <Icon name="material-symbols:edit-note" class="text-lg" />
+            {i18n(I18nKey.draft)}
+          </span>
+        )
+      }
 
       {
         password && (

@@ -364,6 +364,9 @@ export const en: Translation = {
 	// Pinned
 	[Key.pinned]: "Pinned",
 
+	// Draft
+	[Key.draft]: "Draft",
+
 	// Related Posts
 	[Key.relatedPosts]: "Related Posts",
 	[Key.randomPosts]: "Random Posts",

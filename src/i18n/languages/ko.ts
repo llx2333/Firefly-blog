@@ -362,6 +362,9 @@ export const ko: Translation = {
 	// Pinned
 	[Key.pinned]: "고정됨",
 
+	// Draft
+	[Key.draft]: "초안",
+
 	// Related Posts
 	[Key.relatedPosts]: "관련 게시글",
 	[Key.randomPosts]: "무작위 게시글",
