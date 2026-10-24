@@ -67,7 +67,7 @@ export const siteConfig: SiteConfig = {
 	// 主题色
 	themeColor: {
 		// 主题色的默认色相，范围从 0 到 360。例如：红色：0，青色：200，蓝绿色：250，粉色：345
-		hue: 165,
+		hue: 150,
 		// 默认模式："light" 亮色，"dark" 暗色，"system" 跟随系统
 		defaultMode: "dark",
 	},
@@ -90,11 +90,25 @@ export const siteConfig: SiteConfig = {
 	favicon: [
 		{
 			// 图标文件路径
-			src: "/favicon/firefly-32.png",
+			src: "/favicon/ziliudi-180.png",
 			// 可选，指定主题 'light' | 'dark'
 			// theme: "light",
 			// 可选，图标大小
-			// sizes: "32x32",
+			sizes: "180x180",
+		},
+		{
+			src: "/favicon/ziliudi-192.png",
+			sizes: "192x192",
+		},
+		{
+			src: "/favicon/ziliudi-32.png",
+			theme: "light",
+			sizes: "32x32",
+		},
+		{
+			src: "/favicon/ziliudi-dark-32.png",
+			theme: "dark",
+			sizes: "32x32",
 		},
 	],
 
@@ -111,9 +125,9 @@ export const siteConfig: SiteConfig = {
 		// 使用 Astro 图标库时不需要设置 valueDark，图标会自动跟随主题亮暗色切换
 		logo: {
 			type: "image",
-			value: "assets/images/logo/firefly-light.png",
-			valueDark: "assets/images/logo/firefly-dark.png",
-			alt: "🍀",
+			value: "assets/images/logo/ziliudi-light.png",
+			valueDark: "assets/images/logo/ziliudi-dark.png",
+			alt: "自留地",
 		},
 		// 导航栏标题
 		title: "自留地",
