@@ -28,13 +28,22 @@ try {
 
 <!-- 页脚：普通流位于文档末尾。site-footer 是 immersive-reading 的隐藏选择器，
      pointer-events-auto 用于覆盖首页 banner 下父级的 pointer-events: none，两者勿删 -->
-<footer class="site-footer pointer-events-auto pb-4 md:pb-6">
+<footer class="site-footer pointer-events-auto relative pb-4 md:pb-6">
+	<!-- 底部雾化：以底部中心为圆心的椭圆形雾，向四周自然淡出；左右再用 mask 渐隐到零，
+	     雾层不出内容容器（零溢出、不产生横向滚动条），任何窗口宽度下都没有边界线。
+	     亮色压白雾、深色压黑雾，页脚文字压在亮/暗壁纸上都可读 -->
 	<div
-		class="transition border-t border-black/10 dark:border-white/15 mt-10 mb-5 border-dashed mx-32"
+		aria-hidden="true"
+		class="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-[radial-gradient(ellipse_85%_100%_at_50%_100%,rgba(255,255,255,0.6)_0%,rgba(255,255,255,0.25)_45%,transparent_78%)] [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)] dark:bg-[radial-gradient(ellipse_85%_100%_at_50%_100%,rgba(0,0,0,0.6)_0%,rgba(0,0,0,0.25)_45%,transparent_78%)]"
 	>
 	</div>
 
-	<div class="transition flex flex-col items-center justify-center px-6">
+	<div
+		class="transition relative border-t border-black/10 dark:border-white/15 mt-10 mb-5 border-dashed mx-32"
+	>
+	</div>
+
+	<div class="transition relative flex flex-col items-center justify-center px-6">
 		<div class="transition text-50 text-sm text-center wrap">
 			<div class="mb-2">
 				{customFooterHtml && <div set:html={customFooterHtml} />}
