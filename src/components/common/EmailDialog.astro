@@ -1,0 +1,175 @@
+---
+/**
+ * 全站共用邮箱弹窗。
+ *
+ * 约定：任何组件里的邮箱入口都不要直接渲染 mailto 链接，而是渲染一个带
+ *   data-email-trigger data-email={encodeMailto(url)}
+ * 的 <button>/<a>（base64 防爬虫，页面上不出现明文邮箱）。
+ * 点击后由本组件的委托脚本统一弹出「展示 + 复制」弹窗，不再唤起邮件客户端。
+ *
+ * 本组件在 Layout.astro 挂载一次（body 层级、swup 容器之外）：
+ * 页面切换时弹窗常驻，委托绑定在 document 上，对 swup 换进来的新触发元素天然生效。
+ */
+import { Icon } from "astro-icon/components";
+---
+
+<dialog id="site-email-dialog" class="email-dialog" aria-labelledby="site-email-dialog-title">
+  <div
+    class="email-dialog-panel relative rounded-(--radius-large) border border-(--line-divider) bg-(--card-bg) p-5 shadow-2xl"
+  >
+    <button
+      type="button"
+      data-email-close
+      aria-label="关闭"
+      class="absolute right-3 top-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-(--btn-regular-bg) text-(--btn-content) transition-colors hover:bg-(--btn-regular-bg-hover) active:bg-(--btn-regular-bg-active)"
+    >
+      <Icon name="fa7-solid:xmark" class="text-[0.9rem]"></Icon>
+    </button>
+
+    <div class="flex items-center gap-3 pr-8">
+      <div
+        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-(--btn-regular-bg) text-(--btn-content)"
+      >
+        <Icon name="fa7-solid:envelope" class="text-[1.15rem]"></Icon>
+      </div>
+      <div class="min-w-0">
+        <div
+          id="site-email-dialog-title"
+          class="text-lg font-bold text-(--deep-text) dark:text-neutral-50"
+        >
+          邮箱
+        </div>
+        <div class="text-sm text-(--content-meta)">复制后可通过邮件联系我</div>
+      </div>
+    </div>
+
+    <div
+      class="mt-5 flex items-center gap-2 rounded-xl bg-(--btn-regular-bg) px-3 py-2.5"
+    >
+      <span
+        data-email-text
+        class="min-w-0 flex-1 truncate font-mono text-sm text-(--deep-text) dark:text-neutral-50"
+        >••••••</span
+      >
+      <button
+        type="button"
+        data-email-copy
+        class="btn-regular flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold"
+      >
+        <Icon name="fa7-solid:copy" class="text-[0.9rem]"></Icon>
+        <span data-email-copy-label>复制</span>
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  const emailDialog = document.getElementById("site-email-dialog");
+
+  if (emailDialog instanceof HTMLDialogElement) {
+    const emailText = emailDialog.querySelector("[data-email-text]");
+    const copyButton = emailDialog.querySelector("[data-email-copy]");
+    const copyLabel = emailDialog.querySelector("[data-email-copy-label]");
+    let currentEmail = "";
+
+    const setCopyLabel = (text) => {
+      if (copyLabel) copyLabel.textContent = text;
+    };
+
+    const openDialog = (trigger) => {
+      const encoded = trigger.getAttribute("data-email") ?? "";
+      try {
+        currentEmail = atob(encoded);
+      } catch {
+        currentEmail = encoded;
+      }
+      if (emailText) emailText.textContent = currentEmail;
+      setCopyLabel("复制");
+      if (!emailDialog.open) emailDialog.showModal();
+    };
+
+    // 事件委托挂在 document 上：swup 换页后新渲染的触发元素无需重新绑定
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const trigger = target.closest("[data-email-trigger]");
+      if (!trigger) return;
+      event.preventDefault();
+      openDialog(trigger);
+    });
+
+    // 非 <button> 的触发元素（如无 href 的 <a tabindex="0">）补键盘可达性
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (!target.matches('[data-email-trigger][tabindex]')) return;
+      event.preventDefault();
+      openDialog(target);
+    });
+
+    // 点击弹窗外的遮罩层关闭（点击面板内部时 target 不是 dialog 本身）
+    emailDialog.addEventListener("click", (event) => {
+      if (event.target === emailDialog) emailDialog.close();
+    });
+
+    emailDialog
+      .querySelector("[data-email-close]")
+      ?.addEventListener("click", () => emailDialog.close());
+
+    copyButton?.addEventListener("click", async () => {
+      if (!currentEmail) return;
+
+      try {
+        await navigator.clipboard.writeText(currentEmail);
+      } catch {
+        // 非安全上下文（如局域网 IP 访问）没有 clipboard API，退回 execCommand
+        const textarea = document.createElement("textarea");
+        textarea.value = currentEmail;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+
+      setCopyLabel("已复制");
+      window.setTimeout(() => setCopyLabel("复制"), 1500);
+    });
+  }
+</script>
+
+<style>
+  .email-dialog {
+    width: min(24rem, calc(100vw - 2rem));
+    max-width: none;
+    margin: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    overflow: visible;
+  }
+
+  .email-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.42);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+
+  .email-dialog[open] .email-dialog-panel {
+    animation: site-email-dialog-in 0.18s ease-out;
+  }
+
+  @keyframes site-email-dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>

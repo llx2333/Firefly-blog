@@ -3,6 +3,7 @@ import { Icon } from "astro-icon/components";
 import DropdownItem from "@/components/common/DropdownItem.astro";
 import DropdownPanel from "@/components/common/DropdownPanel.astro";
 import type { NavBarLink } from "@/types/config";
+import { encodeMailto } from "@/utils/email-utils";
 import { url } from "@/utils/url-utils";
 
 interface Props {
@@ -38,20 +39,26 @@ const hasChildren = processedLink.children && processedLink.children.length > 0;
 		</button>
 		<div class="dropdown-menu" data-dropdown-menu>
 			<DropdownPanel class="dropdown-content">
-				{processedLink.children?.map((child, index) => (
-					<DropdownItem
-						href={child.external ? child.url : url(child.url)}
-						target={child.external ? "_blank" : undefined}
-						isLast={index === (processedLink.children?.length || 0) - 1}
-						class="dropdown-item focus-ring-inset h-10"
-					>
-						{child.icon && <Icon name={child.icon} class="text-[1.25rem] mr-3 navbar-icon" />}
-						<span>{child.name}</span>
-						{child.external && (
-							<Icon name="fa7-solid:arrow-up-right-from-square" class="text-[0.75rem] text-black/25 dark:text-white/25 ml-auto" />
-						)}
-					</DropdownItem>
-				))}
+				{processedLink.children?.map((child, index) => {
+					// 邮箱入口不渲染 mailto 链接：改为弹窗触发按钮（common/EmailDialog.astro），
+					// 同时避免 url() 把 mailto: 当站内路径拼坏
+					const isMailto = child.url.startsWith("mailto:");
+					return (
+						<DropdownItem
+							href={isMailto ? undefined : child.external ? child.url : url(child.url)}
+							target={!isMailto && child.external ? "_blank" : undefined}
+							dataEmail={isMailto ? encodeMailto(child.url) : undefined}
+							isLast={index === (processedLink.children?.length || 0) - 1}
+							class="dropdown-item focus-ring-inset h-10"
+						>
+							{child.icon && <Icon name={child.icon} class="text-[1.25rem] mr-3 navbar-icon" />}
+							<span>{child.name}</span>
+							{child.external && !isMailto && (
+								<Icon name="fa7-solid:arrow-up-right-from-square" class="text-[0.75rem] text-black/25 dark:text-white/25 ml-auto" />
+							)}
+						</DropdownItem>
+					);
+				})}
 			</DropdownPanel>
 		</div>
 	) : (

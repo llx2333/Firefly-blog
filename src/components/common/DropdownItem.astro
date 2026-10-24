@@ -6,6 +6,8 @@
 interface Props {
 	href?: string;
 	target?: string;
+	/** 传入 encodeMailto() 的 base64 值时，渲染为全站邮箱弹窗（common/EmailDialog.astro）的触发按钮 */
+	dataEmail?: string;
 	isActive?: boolean;
 	isLast?: boolean;
 	class?: string;
@@ -15,6 +17,7 @@ interface Props {
 const {
 	href,
 	target,
+	dataEmail,
 	isActive = false,
 	isLast = false,
 	class: className,
@@ -28,13 +31,17 @@ const activeClass = isActive ? "current-theme-btn" : "";
 const allClasses =
 	`${baseClasses} ${spacingClass} ${activeClass} ${className || ""}`.trim();
 
-const Tag = href ? "a" : "button";
+const Tag = dataEmail !== undefined || !href ? "button" : "a";
+const isButton = Tag === "button";
 ---
 
-<Tag 
+<Tag
 	href={href}
 	target={target}
-	class={allClasses}
+	type={isButton ? "button" : undefined}
+	data-email-trigger={dataEmail !== undefined ? "" : undefined}
+	data-email={dataEmail}
+	class={isButton ? allClasses + " cursor-pointer" : allClasses}
 	onclick={onclick}
 >
 	<slot />

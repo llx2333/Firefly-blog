@@ -12,6 +12,7 @@ import MusicPlayerView from "@components/features/MusicPlayerView.astro";
 import SakuraEffect from "@components/features/SakuraEffect.astro";
 import WavesEffect from "@components/features/WavesEffect.astro";
 import ConfigCarrier from "@components/layout/ConfigCarrier.astro";
+import EmailDialog from "@components/common/EmailDialog.astro";
 
 import {
 	analyticsConfig,
@@ -554,6 +555,7 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
     <!-- 页面顶部渐变高光效果 - 只在full和semifull模式下显示 -->
     {shouldShowTopHighlight && <div class="top-gradient-highlight" />}
     <ConfigCarrier />
+    <EmailDialog />
     <MusicManager />
     <slot />
 
