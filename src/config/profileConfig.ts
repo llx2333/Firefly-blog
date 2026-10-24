@@ -12,7 +12,7 @@ export const profileConfig: ProfileConfig = {
 	name: "llx2333",
 
 	// 个人签名
-	bio: "很高兴遇见你",
+	bio: "什么都种一点",
 
 	// 链接配置
 	// 已经预装的图标集：fa7-brands，fa7-regular，fa7-solid，material-symbols，simple-icons
@@ -28,22 +28,27 @@ export const profileConfig: ProfileConfig = {
 			showName: false,
 		},
 		{
+			name: "Gitee",
+			url: "https://gitee.com/llx2333",
+			icon: "fa7-brands:gitee",
+		},
+		{
 			name: "Email",
 			icon: "fa7-solid:envelope",
 			url: "mailto:ignoramusm@qq.com",
 			showName: false,
 		},
-		{
-			name: "RSS",
-			icon: "fa7-solid:rss",
-			url: "/rss/",
-			showName: false,
-		},
-		{
-			name: "Atom",
-			icon: "fa7-solid:atom",
-			url: "/atom/",
-			showName: false,
-		},
+		// {
+		// 	name: "RSS",
+		// 	icon: "fa7-solid:rss",
+		// 	url: "/rss/",
+		// 	showName: false,
+		// },
+		// {
+		// 	name: "Atom",
+		// 	icon: "fa7-solid:atom",
+		// 	url: "/atom/",
+		// 	showName: false,
+		// },
 	],
 };
