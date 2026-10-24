@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+## 查资料顺序（用户要求，2026-10-23）
+
+- Firefly 的配置/行为问题，**先查官方文档本地镜像** `Firefly-docs/zh/guide/*.md`（源仓库 `CuteLeaf/Firefly-docs`，VitePress，已 gitignore）；文档没讲清或与实现不符时，再看 `src/` 源码。不要每次重新抓 https://docs-firefly.cuteleaf.cn/zh/ 。
+- 更新文档：`cd Firefly-docs && git pull`（浅克隆，深度 1）。
+
 ## Project Structure & Module Organization
 
 Firefly is an Astro 7 site with Svelte islands and TypeScript configuration. Main source code lives in `src/`: routes in `src/pages`, layouts in `src/layouts`, reusable UI in `src/components`, styles in `src/styles`, content in `src/content`, helpers in `src/utils`, and Markdown/HTML plugins in `src/plugins`. Site configuration is split across `src/config` with matching type definitions in `src/types`; prefer imports from `@/config` when available. Static files served directly belong in `public`, source-managed images in `src/assets`, docs in `docs` and `Firefly-Docs`, and automation in `scripts`.
