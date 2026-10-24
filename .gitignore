@@ -36,6 +36,9 @@ yarn.lock
 # docs
 Firefly-docs/
 
+# 私人笔记（只给自己看，不入库）
+docs/mine/
+
 # lite 版本
 Firefly-Lite/
 
@@ -47,3 +50,9 @@ package/
 .codex*
 .claude
 .mimocode
+
+# 主题示例文章存档（仅本地参考，不进仓库）
+/src/content/posts/demo/
+
+# 头像等本地素材暂存（不进仓库）
+/src/assets/images/demo/
