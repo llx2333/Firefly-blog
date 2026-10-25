@@ -2,7 +2,6 @@
 import type { GetStaticPaths } from "astro";
 import Pagination from "@/components/common/Pagination.astro";
 import PostPage from "@/components/layout/PostPage.astro";
-import WriteEntry from "@/components/write/WriteEntry.svelte";
 import { siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
@@ -29,9 +28,6 @@ const heading =
 ---
 
 <MainGridLayout heading={heading}>
-  <div class="flex justify-end mb-4 onload-animation">
-    <WriteEntry client:load />
-  </div>
   <PostPage page={page} />
   {
     page.total > page.size && (

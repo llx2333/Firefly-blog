@@ -1,7 +1,7 @@
 <script lang="ts">
 /**
- * 文章页原位编辑器：挂在 #post-container 首位。
- * 未登录时只显示一个小「编辑」按钮；点开 → 行内验证 token →
+ * 文章页原位编辑器：挂在 #post-container 首位；待机按钮 portal 进元信息行右端
+ * （#post-edit-slot，token 验证通过才显示）。点开 → 行内验证 token →
  * 进入编辑态时隐藏文章卡片其余部分与 #post-extras，保存走 GitHub
  * Contents API 提交 master，Cloudflare Pages 构建上线。
  * 远端 404（本地预览文章尚未提交过）→ 以当前标题起草，保存即新建。
@@ -9,6 +9,12 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onDestroy, tick } from "svelte";
+import {
+	clearVerified,
+	ensureVerified,
+	markVerified,
+	resolveToken,
+} from "@/utils/write/auth";
 import {
 	emptyFrontmatter,
 	type PostFrontmatter,
@@ -25,7 +31,7 @@ import {
 	putFile,
 	putImageBase64,
 } from "@/utils/write/github";
-import { persistToken, readStoredToken } from "@/utils/write/session";
+import { persistToken } from "@/utils/write/session";
 import {
 	fileNameToSlug,
 	timestampPrefix,
@@ -73,6 +79,12 @@ const sanitizeConfig: sanitizeHtml.Options = {
 
 // --- 全局状态 ---
 let mode = $state<Mode>("idle");
+/** 编辑入口门控：token 验证通过才渲染「编辑」按钮（访客不可见） */
+let authed = $state(false);
+/** 待机按钮所在槽位是否为封面 overlay（决定按钮配色） */
+let coverSlot = $state(false);
+/** 待机按钮行：挂载后 portal 进 #post-edit-slot（元信息行右端） */
+let idleRow = $state<HTMLElement | null>(null);
 let token = $state("");
 let userLogin = $state<string | null>(null);
 let notice = $state("");
@@ -231,12 +243,29 @@ $effect(() => {
 	return () => window.removeEventListener("beforeunload", handler);
 });
 
+// 入口门控：token（自身或 /admin 复用）经 GET /user 静默验证后才显示「编辑」
+$effect(() => {
+	void ensureVerified(resolveToken()).then((ok) => {
+		authed = ok;
+	});
+});
+
+// 待机按钮 portal：进元信息行右端槽位（[...slug].astro 渲染），避免独占一行；
+// 无槽位的页面形态（overlay 开启但无封面图等）保持卡片顶部原位兜底
+$effect(() => {
+	if (mode !== "idle" || !authed || !idleRow) return;
+	const slot = document.getElementById("post-edit-slot");
+	if (!slot) return;
+	coverSlot = slot.dataset.variant === "cover";
+	if (idleRow.parentElement !== slot) slot.appendChild(idleRow);
+});
+
 // --- 进入编辑 ---
 
 function beginEdit() {
 	loginError = "";
 	reloginHint = "";
-	const saved = readStoredToken();
+	const saved = resolveToken();
 	if (saved) {
 		token = saved;
 		void verifyAndLoad(saved);
@@ -253,6 +282,7 @@ async function verifyAndLoad(value: string) {
 		token = value;
 		persistToken(value);
 		userLogin = user.login;
+		markVerified(value);
 		tokenInput = "";
 		if (editorReady) {
 			// 401 后重新验证：编辑现场原样恢复，不再拉远端覆盖
@@ -328,6 +358,7 @@ function exitEdit() {
 function kickToRelogin() {
 	token = "";
 	persistToken("");
+	clearVerified();
 	userLogin = null;
 	reloginHint = "登录已失效，编辑内容已保留";
 	showToast("登录已失效，编辑内容已保留");
@@ -489,12 +520,12 @@ async function insertAtCursor(text: string) {
 </script>
 
 <div class="w-full" bind:this={rootEl}>
-	{#if mode === "idle"}
-		<!-- 待机：卡片顶部右侧一个小编辑入口，不打扰阅读 -->
-		<div class="flex justify-end -mt-1 mb-2 relative z-10">
+	{#if mode === "idle" && authed}
+		<!-- 待机：portal 进元信息行右端（无槽位时退回卡片顶部），认证后才可见 -->
+		<div bind:this={idleRow} class="relative z-10 inline-flex">
 			<button
 				type="button"
-				class="inline-flex items-center gap-1 text-xs text-50 hover:text-(--primary) transition-colors px-2 py-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+				class={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${coverSlot ? "text-white/90 hover:text-white" : "text-50 hover:text-(--primary) hover:bg-black/5 dark:hover:bg-white/10"}`}
 				onclick={beginEdit}
 				title="用 GitHub token 原位编辑这篇文章"
 			>
@@ -562,8 +593,10 @@ async function insertAtCursor(text: string) {
 				Token 仅保存在本浏览器 localStorage，只发送给 GitHub API。
 			</p>
 		</div>
-	{:else}
-		<!-- 编辑态：占据整张卡片（其余兄弟节点已被隐藏） -->
+	{:else if mode === "editing"}
+		<!-- 编辑态：占据整张卡片（其余兄弟节点已被隐藏）。
+			注意必须显式判定 editing：访客待机态（idle && !authed）三个分支都不命中、
+			渲染为空——若用 {:else} 兜底，SSR 与水合都会给访客渲染出整个编辑面板 -->
 		<div class="w-full pb-2">
 			<!-- 工具条 -->
 			<div class="flex flex-wrap items-center gap-3 mb-4">

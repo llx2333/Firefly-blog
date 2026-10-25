@@ -7,6 +7,7 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onMount, tick } from "svelte";
+import { clearVerified, markVerified, resolveToken } from "@/utils/write/auth";
 import {
 	emptyFrontmatter,
 	type PostFrontmatter,
@@ -26,7 +27,7 @@ import {
 	putImageBase64,
 	WRITE_REPO,
 } from "@/utils/write/github";
-import { persistToken, readStoredToken } from "@/utils/write/session";
+import { persistToken } from "@/utils/write/session";
 import {
 	fileNameToSlug,
 	timestampPrefix,
@@ -186,13 +187,15 @@ function storeToken(value: string) {
 /** 401 或手动登出：清 token、回登录卡 */
 function forceLogout(message: string) {
 	storeToken("");
+	clearVerified();
 	userLogin = null;
 	loginError = message;
 	view = "login";
 }
 
 onMount(() => {
-	const saved = readStoredToken();
+	// 复用自身或 /admin（Sveltia）登录态的 token；验证通过时顺带刷新入口门控缓存
+	const saved = resolveToken();
 	if (!saved) {
 		authChecking = false;
 		return;
@@ -201,6 +204,7 @@ onMount(() => {
 	fetchCurrentUser(saved)
 		.then((user) => {
 			userLogin = user.login;
+			markVerified(saved);
 			if (wantsNewPost()) {
 				newPost();
 				return;
@@ -239,6 +243,7 @@ async function handleLogin() {
 	try {
 		const user = await fetchCurrentUser(value);
 		storeToken(value);
+		markVerified(value);
 		userLogin = user.login;
 		tokenInput = "";
 		if (wantsNewPost()) {
@@ -324,6 +329,41 @@ async function loadList() {
 	}
 }
 
+/** 首页导航「写文章」弹窗经 sessionStorage 传来的新文章种子（预填 frontmatter） */
+const NEW_SEED_KEY = "write-editor-new-seed";
+
+interface NewPostSeed {
+	title?: string;
+	category?: string;
+	tags?: string[];
+	description?: string;
+}
+
+function readNewPostSeed(): NewPostSeed | null {
+	try {
+		const raw = sessionStorage.getItem(NEW_SEED_KEY);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as NewPostSeed;
+		if (!parsed || typeof parsed !== "object") return null;
+		return {
+			title: typeof parsed.title === "string" ? parsed.title.trim() : "",
+			category:
+				typeof parsed.category === "string" ? parsed.category.trim() : "",
+			tags: Array.isArray(parsed.tags)
+				? parsed.tags
+						.filter(
+							(t): t is string => typeof t === "string" && t.trim() !== "",
+						)
+						.map((t) => t.trim())
+				: [],
+			description:
+				typeof parsed.description === "string" ? parsed.description.trim() : "",
+		};
+	} catch {
+		return null;
+	}
+}
+
 function newPost() {
 	if (!isLoggedIn) {
 		view = "login";
@@ -332,20 +372,35 @@ function newPost() {
 	}
 	fm = emptyFrontmatter(true);
 	fm.published = todayDateString();
-	body = SAMPLE_BODY;
+	// 弹窗种子：标题/分类/标签/摘要预填进 frontmatter，正文置空（非示例正文）；
+	// 有标题时立即联动生成文件名与 slug（onTitleBlur 对新建流程幂等）
+	const seed = readNewPostSeed();
+	if (seed) {
+		try {
+			sessionStorage.removeItem(NEW_SEED_KEY);
+		} catch {
+			/* 忽略 */
+		}
+	}
+	if (seed?.title) fm.title = seed.title;
+	if (seed?.category) fm.category = seed.category;
+	if (seed?.description) fm.description = seed.description;
+	if (seed?.tags?.length) fm.tags = seed.tags;
+	body = seed ? "" : SAMPLE_BODY;
 	extras = {};
 	fileName = "";
 	fileNameTouched = false;
 	fileExt = "md";
 	loadedPath = null;
 	sha = null;
-	tagsInput = "";
+	tagsInput = fm.tags.join(", ");
 	seriesOrderInput = "";
 	showFrontmatter = true;
 	mobileTab = "edit";
 	editorError = "";
 	conflictPending = false;
 	view = "editor";
+	if (seed?.title) onTitleBlur();
 }
 
 async function openPost(item: ListItem) {

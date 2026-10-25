@@ -307,15 +307,19 @@ const seriesData = await getSeriesPosts(entry);
               >
                 {entry.data.title}
               </div>
-              <PostMetadata
-                variant="cover"
-                className="gap-x-4 gap-y-1"
-                published={entry.data.published}
-                updated={entry.data.updated}
-                category={entry.data.category || undefined}
-                tags={entry.data.tags}
-                id={entry.id}
-              />
+              <div class="flex flex-wrap items-center">
+                <PostMetadata
+                  variant="cover"
+                  className="gap-x-4 gap-y-1"
+                  published={entry.data.published}
+                  updated={entry.data.updated}
+                  category={entry.data.category || undefined}
+                  tags={entry.data.tags}
+                  id={entry.id}
+                />
+                <!-- 编辑按钮槽位：PostEditor 待机态 portal 进来（认证后才显示） -->
+                <span id="post-edit-slot" data-variant="cover" class="ml-auto"></span>
+              </div>
             </div>
           </div>
         )
@@ -396,14 +400,17 @@ const seriesData = await getSeriesPosts(entry);
       {
         !usePostCoverOverlay && (
           <div class="onload-animation">
-            <PostMetadata
-              className="mb-5"
-              published={entry.data.published}
-              updated={entry.data.updated}
-              tags={entry.data.tags}
-              category={entry.data.category || undefined}
-              id={entry.id}
-            />
+            <div class="mb-5 flex flex-wrap items-center">
+              <PostMetadata
+                published={entry.data.published}
+                updated={entry.data.updated}
+                tags={entry.data.tags}
+                category={entry.data.category || undefined}
+                id={entry.id}
+              />
+              <!-- 编辑按钮槽位：PostEditor 待机态 portal 进来（认证后才显示） -->
+              <span id="post-edit-slot" class="ml-auto"></span>
+            </div>
             {
               !showPostCover && (
                 <div class="border-(--line-divider) border-dashed border-b mt-3 mb-5" />
