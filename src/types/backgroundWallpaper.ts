@@ -1,5 +1,19 @@
 export type FullscreenWallpaperLayout = "classic" | "hero";
 
+// 壁纸季节（批六）：北半球气象季节，客户端按访问月份判定
+export type WallpaperSeason = "spring" | "summer" | "autumn" | "winter";
+
+// 主题配对壁纸（批七）：同一场景的亮/暗两个近似版本，一个配对占一个轮播位，
+// 客户端按当前亮暗色主题只实例化对应版本，切主题时直接换图；
+// 只有单版本的图不用配对，两种主题下都显示
+export type ThemeWallpaperPair = {
+	light: string; // 亮色主题下显示的版本（明亮/晨雾光线）
+	dark: string; // 暗色主题下显示的版本（暗一点/金昏暖光）
+	// 季节配对（批七）：带 season 的配对只在对应季节进入轮播（如春季花树、秋季柿子）；
+	// 成员不要再出现在 desktop/mobile/seasonal 数组里，否则同一张图会渲染两份
+	season?: WallpaperSeason;
+};
+
 export type BackgroundWallpaperConfig = {
 	mode: "banner" | "fullscreen" | "overlay" | "none"; // 壁纸模式：banner横幅模式、fullscreen全屏壁纸、overlay全屏透明覆盖模式或none纯色背景
 	playerEnable?: boolean; // 是否启用背景视频播放，默认false
@@ -9,8 +23,23 @@ export type BackgroundWallpaperConfig = {
 		| {
 				desktop?: string | string[];
 				mobile?: string | string[];
+				// 季节池（批六）：季节特征极强的图只在其对应季节并入轮播；
+				// 未配置或空数组时主组就是纯通用池，行为与之前一致
+				desktopSeasonal?: Partial<Record<WallpaperSeason, string[]>>;
+				mobileSeasonal?: Partial<Record<WallpaperSeason, string[]>>;
+				// 主题配对池（批七）：亮/暗近似双版的场景对，一个配对占一个轮播位，
+				// 按当前主题只下载显示对应版本；配对成员不要再出现在
+				// desktop/mobile/seasonal 数组里，否则同一张图会渲染两份
+				desktopThemePairs?: ThemeWallpaperPair[];
+				mobileThemePairs?: ThemeWallpaperPair[];
 				playerUrl?: string | string[]; // 背景视频播放地址，支持单个视频路径或数组（多视频列表循环）
 		  }; // 支持单个图片、图片数组或分别设置桌面端和移动端图片
+	// 备用壁纸组（批四）：配置后设置面板出现「壁纸风格」切换，默认用 src（主组），
+	// 访客可手动切到这组并在本地记住；不配置则不渲染备用组也不显示切换入口
+	altSrc?: {
+		desktop?: string | string[];
+		mobile?: string | string[];
+	};
 	// 横幅壁纸和全屏壁纸共享配置
 	common?: {
 		dimOpacity?: number; // 横幅文字遮罩暗度，0-1之间，值越大越暗，默认0.15

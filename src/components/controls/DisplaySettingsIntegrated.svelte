@@ -8,6 +8,7 @@ import {
 import I18nKey from "@i18n/i18nKey";
 import { i18n } from "@i18n/translation";
 import {
+	getDefaultAmbientEffects,
 	getDefaultBannerCarouselEnabled,
 	getDefaultBannerTitleEnabled,
 	getDefaultCardBorderEnabled,
@@ -18,9 +19,9 @@ import {
 	getDefaultOverlayBlur,
 	getDefaultOverlayCardOpacity,
 	getDefaultOverlayOpacity,
-	getDefaultSakuraEnabled,
 	getDefaultWavesEnabled,
 	getHue,
+	getStoredAmbientEffects,
 	getStoredBannerCarouselEnabled,
 	getStoredBannerTitleEnabled,
 	getStoredCardBorderEnabled,
@@ -30,9 +31,11 @@ import {
 	getStoredOverlayBlur,
 	getStoredOverlayCardOpacity,
 	getStoredOverlayOpacity,
-	getStoredSakuraEnabled,
 	getStoredWallpaperMode,
+	getStoredWallpaperSet,
 	getStoredWavesEnabled,
+	resetAmbientEffects,
+	setAmbientEffectEnabled,
 	setBannerCarouselEnabled,
 	setBannerTitleEnabled,
 	setCardBorderEnabled,
@@ -43,18 +46,22 @@ import {
 	setOverlayBlur,
 	setOverlayCardOpacity,
 	setOverlayOpacity,
-	setSakuraEnabled,
 	setWallpaperMode,
+	setWallpaperSet,
 	setWavesEnabled,
 } from "@utils/setting-utils";
 import { onMount } from "svelte";
 import Icon from "@/components/common/Icon.svelte";
+import { ambientEffectMeta } from "@/config/effectsConfig";
+import { effectIconSvg } from "./effect-icons";
+import type { AmbientEffectId } from "@/types/effectsConfig";
 import {
 	backgroundWallpaper,
 	displaySettingsConfig,
 	siteConfig,
 } from "@/config";
 import type { FullscreenWallpaperLayout, WALLPAPER_MODE } from "@/types/config";
+import type { WALLPAPER_SET } from "@utils/setting-utils";
 
 type OverlaySliderItem = {
 	key: "opacity" | "blur" | "cardOpacity";
@@ -75,6 +82,8 @@ let hue = $state(getHue());
 const defaultHue = getDefaultHue();
 let wallpaperMode: WALLPAPER_MODE = $state(backgroundWallpaper.mode);
 const defaultWallpaperMode = backgroundWallpaper.mode;
+// 壁纸风格（批五：田园主组 / 流萤备用组）
+let wallpaperSet: WALLPAPER_SET = $state("main");
 let fullscreenLayout: FullscreenWallpaperLayout = $state(
 	getDefaultFullscreenLayout(),
 );
@@ -102,8 +111,25 @@ let bannerTitleEnabled = $state(true);
 const defaultBannerTitleEnabled = getDefaultBannerTitleEnabled();
 let bannerCarouselEnabled = $state(true);
 const defaultBannerCarouselEnabled = getDefaultBannerCarouselEnabled();
-let sakuraEnabled = $state(true);
-const defaultSakuraEnabled = getDefaultSakuraEnabled();
+let ambientEffects = $state(getStoredAmbientEffects());
+const defaultAmbientEffects = getDefaultAmbientEffects();
+// 当前解析主题（批九第三轮）：面板按 meta.themes 禁用当前主题用不了的特效行，
+// 引擎侧另有 themeMix < 0.02 兜底跳过，双保险。
+// 真值源与引擎一致：html 的 dark class；data-theme 存的是 Expressive Code 主题名（one-light 等），不能用
+let resolvedTheme: "dark" | "light" = $state(
+	typeof document !== "undefined" &&
+	document.documentElement.classList.contains("dark")
+		? "dark"
+		: "light",
+);
+function themeSupported(m: (typeof ambientEffectMeta)[number]): boolean {
+	return !m.themes || m.themes.includes(resolvedTheme);
+}
+const anyAmbientChanged = $derived(
+	ambientEffectMeta.some(
+		(m) => ambientEffects[m.id] !== defaultAmbientEffects[m.id],
+	),
+);
 let overlayOpacity = $state(getDefaultOverlayOpacity());
 const defaultOverlayOpacity = getDefaultOverlayOpacity();
 let overlayBlur = $state(getDefaultOverlayBlur());
@@ -116,6 +142,18 @@ let cardFollowThemeEnabled = $state(false);
 const defaultCardFollowThemeEnabled = getDefaultCardFollowThemeEnabled();
 
 const isWallpaperSwitchable = displaySettingsConfig.wallpaperModeSwitchable;
+// 壁纸风格切换：总开关开着且备用组（altSrc）配了图才显示入口
+const hasAltWallpaperSet = (() => {
+	const alt = backgroundWallpaper.altSrc;
+	if (!alt) return false;
+	const toArr = (v?: string | string[]) =>
+		Array.isArray(v) ? v : v ? [v] : [];
+	return (
+		toArr(alt.desktop).length > 0 || toArr(alt.mobile).length > 0
+	);
+})();
+const isWallpaperSetSwitchable =
+	displaySettingsConfig.wallpaperSetSwitchable && hasAltWallpaperSet;
 const isFullscreenLayoutSwitchable = $derived(
 	displaySettingsConfig.fullscreenLayoutSwitchable &&
 		wallpaperMode === WALLPAPER_FULLSCREEN,
@@ -134,7 +172,8 @@ const isBannerTitleSwitchable =
 	isBannerTitleEnabled && displaySettingsConfig.bannerTitleSwitchable;
 const isBannerCarouselSwitchable =
 	displaySettingsConfig.bannerCarouselSwitchable;
-const isSakuraSwitchable = displaySettingsConfig.sakuraSwitchable;
+const isAmbientEffectsSwitchable =
+	displaySettingsConfig.ambientEffectsSwitchable;
 const isCardBorderSwitchable = displaySettingsConfig.cardBorderSwitchable;
 const isCardFollowThemeSwitchable =
 	displaySettingsConfig.cardFollowThemeSwitchable;
@@ -195,11 +234,11 @@ let cardSettingsIsDefault = $derived(
 const hasAnyContent = $derived(
 	showThemeColor ||
 		isWallpaperSwitchable ||
+		isWallpaperSetSwitchable ||
 		isFullscreenLayoutSwitchable ||
 		allowLayoutSwitch ||
 		hasBannerSettings ||
-		hasOverlaySettings ||
-		isSakuraSwitchable,
+		hasOverlaySettings,
 );
 
 // --- Tab visibility ---
@@ -211,6 +250,7 @@ const hasAppearanceTab = $derived(
 );
 const hasWallpaperTab = $derived(
 	isWallpaperSwitchable ||
+		isWallpaperSetSwitchable ||
 		isFullscreenLayoutSwitchable ||
 		((wallpaperMode === WALLPAPER_OVERLAY ||
 			wallpaperMode === WALLPAPER_FULLSCREEN) &&
@@ -219,7 +259,7 @@ const hasWallpaperTab = $derived(
 			wallpaperMode === WALLPAPER_FULLSCREEN) &&
 			hasBannerSettings),
 );
-const hasEffectsTab = $derived(isSakuraSwitchable);
+const hasEffectsTab = $derived(isAmbientEffectsSwitchable);
 
 let visibleTabs = $derived.by(() => {
 	const tabs: { key: TabKey; icon: string; label: string }[] = [];
@@ -329,6 +369,17 @@ function resetWallpaperMode() {
 	setWallpaperMode(defaultWallpaperMode);
 }
 
+function switchWallpaperSet(next: WALLPAPER_SET) {
+	if (wallpaperSet === next) return;
+	wallpaperSet = next;
+	setWallpaperSet(next);
+}
+
+function resetWallpaperSet() {
+	wallpaperSet = "main";
+	setWallpaperSet("main");
+}
+
 function resetFullscreenLayout() {
 	fullscreenLayout = defaultFullscreenLayout;
 	setFullscreenLayout(defaultFullscreenLayout);
@@ -426,9 +477,10 @@ function toggleBannerCarouselEnabled() {
 	setBannerCarouselEnabled(bannerCarouselEnabled);
 }
 
-function toggleSakuraEnabled() {
-	sakuraEnabled = !sakuraEnabled;
-	setSakuraEnabled(sakuraEnabled);
+function toggleAmbientEffect(id: AmbientEffectId) {
+	const next = !ambientEffects[id];
+	ambientEffects[id] = next;
+	setAmbientEffectEnabled(id, next);
 }
 
 function toggleCardBorderEnabled() {
@@ -532,6 +584,9 @@ onMount(() => {
 	// 从localStorage读取保存的壁纸模式
 	wallpaperMode = getStoredWallpaperMode();
 
+	// 从localStorage读取保存的壁纸风格（田园/流萤）
+	wallpaperSet = getStoredWallpaperSet();
+
 	// 从localStorage读取保存的全屏壁纸布局
 	fullscreenLayout = getStoredFullscreenLayout();
 
@@ -547,8 +602,8 @@ onMount(() => {
 	// 从localStorage读取横幅轮播状态
 	bannerCarouselEnabled = getStoredBannerCarouselEnabled();
 
-	// 从localStorage读取樱花特效状态
-	sakuraEnabled = getStoredSakuraEnabled();
+	// 从localStorage读取自定义氛围特效状态
+	ambientEffects = getStoredAmbientEffects();
 
 	// 从localStorage读取卡片样式状态
 	cardBorderEnabled = getStoredCardBorderEnabled();
@@ -623,6 +678,38 @@ onMount(() => {
 			handleWallpaperModeChange,
 		);
 	};
+});
+
+onMount(() => {
+	const handleWallpaperSetChange = (event: Event) => {
+		const customEvent = event as CustomEvent<{ set: WALLPAPER_SET }>;
+		wallpaperSet = customEvent.detail.set;
+	};
+
+	window.addEventListener("wallpaperSetChange", handleWallpaperSetChange);
+
+	return () => {
+		window.removeEventListener(
+			"wallpaperSetChange",
+			handleWallpaperSetChange,
+		);
+	};
+});
+
+onMount(() => {
+	// 跟踪当前解析主题：面板开着时切主题（含 system 跟随翻转）要实时禁用/解禁特效行；
+	// 真值源是 html 的 dark class（setTheme / 系统跟随 / 表达式代码主题更新全都会改它），class 一动就重读
+	const applyTheme = () => {
+		resolvedTheme = document.documentElement.classList.contains("dark")
+			? "dark"
+			: "light";
+	};
+	applyTheme();
+	const themeObserver = new MutationObserver(applyTheme);
+	themeObserver.observe(document.documentElement, {
+		attributeFilter: ["class"],
+	});
+	return () => themeObserver.disconnect();
 });
 
 $effect(() => {
@@ -862,6 +949,42 @@ $effect(() => {
 		</div>
 		{/if}
 
+		<!-- Wallpaper Set Section（壁纸风格：田园主组 / 流萤备用组，批五） -->
+		{#if isWallpaperSetSwitchable}
+		<div>
+			<div class="section-title">
+				{i18n(I18nKey.wallpaperSet)}
+				<button aria-label="Reset to Default" class="btn-regular rounded-md active:scale-90"
+						class:opacity-0={wallpaperSet === "main"} class:pointer-events-none={wallpaperSet === "main"}
+						disabled={wallpaperSet === "main"} aria-hidden={wallpaperSet === "main" ? "true" : undefined} onclick={resetWallpaperSet}>
+					<div class="text-(--btn-content)">
+						<Icon icon="fa7-solid:arrow-rotate-left" class="text-[0.75rem]"></Icon>
+					</div>
+				</button>
+			</div>
+			<div class="grid grid-cols-2 gap-2">
+				<button
+					class="btn-regular rounded-md py-2 px-3 flex items-center justify-center gap-2 active:scale-95 transition-all relative overflow-hidden"
+					class:opacity-60={wallpaperSet !== "main"}
+					class:bg-(--btn-regular-bg-hover)={wallpaperSet === "main"}
+					onclick={() => switchWallpaperSet("main")}
+				>
+					<Icon icon="material-symbols:grass" class="text-[1.25rem] shrink-0"></Icon>
+					<span class="text-xs font-medium">{i18n(I18nKey.wallpaperSetPastoral)}</span>
+				</button>
+				<button
+					class="btn-regular rounded-md py-2 px-3 flex items-center justify-center gap-2 active:scale-95 transition-all relative overflow-hidden"
+					class:opacity-60={wallpaperSet !== "alt"}
+					class:bg-(--btn-regular-bg-hover)={wallpaperSet === "alt"}
+					onclick={() => switchWallpaperSet("alt")}
+				>
+					<Icon icon="material-symbols:flare" class="text-[1.25rem] shrink-0"></Icon>
+					<span class="text-xs font-medium">{i18n(I18nKey.wallpaperSetFirefly)}</span>
+				</button>
+			</div>
+		</div>
+		{/if}
+
 		<!-- Fullscreen Layout Section -->
 		{#if isFullscreenLayoutSwitchable}
 		<div>
@@ -1027,36 +1150,49 @@ $effect(() => {
 		{/if}
 	{/if}
 
-	<!-- Effects Tab: Sakura -->
+	<!-- Effects Tab: 自定义氛围特效 -->
 	{#if activeTab === "effects"}
-		{#if isSakuraSwitchable}
+		{#if isAmbientEffectsSwitchable}
 		<div class="">
 			<div class="section-title">
 				{i18n(I18nKey.effectsSettings)}
 				<button aria-label="Reset to Default" class="btn-regular rounded-md active:scale-90"
-						class:opacity-0={sakuraEnabled === defaultSakuraEnabled} class:pointer-events-none={sakuraEnabled === defaultSakuraEnabled}
-						disabled={sakuraEnabled === defaultSakuraEnabled} aria-hidden={sakuraEnabled === defaultSakuraEnabled ? "true" : undefined}
-						onclick={() => { sakuraEnabled = defaultSakuraEnabled; setSakuraEnabled(defaultSakuraEnabled); }}>
+						class:opacity-0={!anyAmbientChanged} class:pointer-events-none={!anyAmbientChanged}
+						disabled={!anyAmbientChanged} aria-hidden={!anyAmbientChanged ? "true" : undefined}
+						onclick={() => { resetAmbientEffects(); }}>
 					<div class="text-(--btn-content)">
 						<Icon icon="fa7-solid:arrow-rotate-left" class="text-[0.75rem]"></Icon>
 					</div>
 				</button>
 			</div>
+			{#if isAmbientEffectsSwitchable}
+			{#each ambientEffectMeta as m (m.id)}
 			<button
 				class="w-full btn-regular rounded-md py-2 px-3 flex items-center gap-3 text-left active:scale-95 transition-all relative overflow-hidden"
-				class:bg-(--btn-regular-bg-hover)={sakuraEnabled}
-				onclick={toggleSakuraEnabled}
+				class:bg-(--btn-regular-bg-hover)={ambientEffects[m.id] && themeSupported(m)}
+				class:opacity-50={!themeSupported(m)}
+				class:cursor-not-allowed={!themeSupported(m)}
+				disabled={!themeSupported(m)}
+				onclick={() => toggleAmbientEffect(m.id)}
 			>
-				<Icon icon="mdi:flower-poppy" class="text-[1.25rem] shrink-0"></Icon>
-				<span class="text-sm flex-1">{i18n(I18nKey.sakuraEffect)}</span>
+				<span class="w-5 h-5 shrink-0 inline-block" aria-hidden="true">{@html effectIconSvg[m.id]}</span>
+				<span class="text-sm flex-1">{i18n(m.key)}</span>
+				{#if themeSupported(m)}
 				<div class="w-10 h-5 rounded-full transition-all duration-200 relative"
-					 class:bg-(--primary)={sakuraEnabled}
-					 class:bg-(--btn-regular-bg-active)={!sakuraEnabled}>
+					 class:bg-(--primary)={ambientEffects[m.id]}
+					 class:bg-(--btn-regular-bg-active)={!ambientEffects[m.id]}>
 					<div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all duration-200"
-						 class:left-0.5={!sakuraEnabled}
-						 class:left-5={sakuraEnabled}></div>
+						 class:left-0.5={!ambientEffects[m.id]}
+						 class:left-5={ambientEffects[m.id]}></div>
 				</div>
+				{:else}
+				<span class="text-xs opacity-75 shrink-0 whitespace-nowrap">
+					{i18n(m.themes?.[0] === "light" ? I18nKey.effectLightOnly : I18nKey.effectDarkOnly)}
+				</span>
+				{/if}
 			</button>
+			{/each}
+			{/if}
 		</div>
 		{/if}
 	{/if}

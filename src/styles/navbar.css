@@ -100,7 +100,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
     /* "semi" */
     html[data-has-wallpaper] #navbar[data-transparent-mode="semi"]>div {
         --navbar-surface-blur: var(--navbar-glass-blur, 20px) !important;
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         border-radius: 0 0 0.75rem 0.75rem !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
@@ -117,7 +117,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
     /* "semifull" (scrolled) */
     html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"].scrolled>div {
         --navbar-surface-blur: var(--navbar-glass-blur, 20px) !important;
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         border-radius: 0 0 0.75rem 0.75rem !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
@@ -132,7 +132,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
     /* "semi" */
     html[data-has-wallpaper] #navbar[data-transparent-mode="semi"][data-is-home="true"]>div {
         --navbar-surface-blur: var(--navbar-glass-blur, 20px) !important;
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         border-radius: 0 0 0.75rem 0.75rem !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
@@ -149,7 +149,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
     /* "semifull" (scrolled) */
     html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"][data-is-home="true"].scrolled>div {
         --navbar-surface-blur: var(--navbar-glass-blur, 20px) !important;
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         border-radius: 0 0 0.75rem 0.75rem !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
@@ -162,7 +162,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
 
     /* "semi" */
     :root.dark[data-has-wallpaper] #navbar[data-transparent-mode="semi"]>div {
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
 
@@ -175,7 +175,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
 
     /* "semifull" (scrolled) */
     :root.dark[data-has-wallpaper] #navbar[data-transparent-mode="semifull"].scrolled>div {
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
 }
@@ -187,7 +187,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
 
     /* "semi" */
     :root.dark[data-has-wallpaper] #navbar[data-transparent-mode="semi"][data-is-home="true"]>div {
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
 
@@ -200,7 +200,7 @@ html[data-has-wallpaper] #navbar[data-transparent-mode="semifull"]:not(.scrolled
 
     /* "semifull" (scrolled) */
     :root.dark[data-has-wallpaper] #navbar[data-transparent-mode="semifull"][data-is-home="true"].scrolled>div {
-        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-45) * 100%), transparent) !important;
+        background: color-mix(in oklch, var(--card-bg) calc(var(--opacity-75) * 100%), transparent) !important;
         box-shadow: inset 0 1px 0 var(--navbar-glass-highlight), 0 1px 0 var(--navbar-glass-hairline) !important;
     }
 }

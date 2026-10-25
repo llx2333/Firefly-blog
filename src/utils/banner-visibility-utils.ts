@@ -1,6 +1,6 @@
 import { backgroundWallpaper, displaySettingsConfig } from "@/config";
 import { getImageQuality } from "@/utils/image-utils";
-import { getBackgroundImages } from "@/utils/layout-utils";
+import { getAltBackgroundImages, getBackgroundImages } from "@/utils/layout-utils";
 
 /** 文章横幅元信息（从 MainGridLayout 的 Props 提取，供组件复用） */
 export interface BannerPostMeta {
@@ -161,6 +161,9 @@ export function getBannerVisibilityState(
 		!!title;
 
 	const backgroundImages = getBackgroundImages();
+	// 备用组（流萤）也参与「多图」判定：只要任一组是多张就走轮播渲染分支，
+	// 两组 slide 才有机会一起渲染、供风格切换使用
+	const altBackgroundImages = getAltBackgroundImages();
 	const configQuality = getImageQuality();
 	const mobileQuality = Math.round(configQuality * 0.9);
 	const bannerCarouselEnabledDefault =
@@ -174,7 +177,10 @@ export function getBannerVisibilityState(
 	const bannerCarouselEffect =
 		backgroundWallpaper.common?.carousel?.transitionEffect ?? "fade";
 	const hasMultipleImages =
-		backgroundImages.desktop.length > 1 || backgroundImages.mobile.length > 1;
+		backgroundImages.desktop.length > 1 ||
+		backgroundImages.mobile.length > 1 ||
+		altBackgroundImages.desktop.length > 1 ||
+		altBackgroundImages.mobile.length > 1;
 
 	return {
 		isBannerMode,

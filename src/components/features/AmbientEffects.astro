@@ -1,0 +1,38 @@
+---
+// 自定义氛围特效：画布引擎见 src/utils/ambient-effects.ts，
+// 特效清单/开关见 src/config/effectsConfig.ts
+// 生命周期：幂等守卫（Swup 切页重跑不重复初始化）+ localStorage 优先 +
+// setting-utils 派发 CustomEvent 实时开关
+---
+
+<script>
+	import { AmbientEffectsManager } from "@/utils/ambient-effects";
+	import { getStoredAmbientEffects } from "@/utils/setting-utils";
+	import type { AmbientEffectId } from "@/types/effectsConfig";
+
+	declare global {
+		interface Window {
+			__ambientEffectsInitialized?: boolean;
+			ambientEffectsManager?: AmbientEffectsManager;
+		}
+	}
+
+	(function setupAmbientEffects() {
+		if (window.__ambientEffectsInitialized) {
+			return;
+		}
+		window.__ambientEffectsInitialized = true;
+
+		const manager = new AmbientEffectsManager();
+		window.ambientEffectsManager = manager;
+		manager.init(getStoredAmbientEffects());
+
+		// 设置面板「特效」页逐项开关（setting-utils.setAmbientEffectEnabled 派发）
+		window.addEventListener("ambientEffectsToggle", (e: Event) => {
+			const detail = (e as CustomEvent<{ id: string; enabled: boolean }>)
+				.detail;
+			if (!detail) return;
+			manager.setEffect(detail.id as AmbientEffectId, detail.enabled);
+		});
+	})();
+</script>

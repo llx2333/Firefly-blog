@@ -33,9 +33,22 @@ export const profileConfig: ProfileConfig = {
 			icon: "fa7-brands:gitee",
 		},
 		{
+			name: "Bilibili",
+			url: "https://space.bilibili.com/1439787435",
+			icon: "fa7-brands:bilibili",
+		},
+		{
 			name: "Email",
 			icon: "fa7-solid:envelope",
 			url: "mailto:ignoramusm@qq.com",
+			showName: false,
+		},
+		// 打赏入口（站内 /sponsor/ 页）。这里是社交图标的唯一数据源：
+		// 首页横幅图标、导航「链接」下拉、侧栏身份卡都从这里派生，加/改一处即可三处同步
+		{
+			name: "打赏",
+			icon: "fa7-solid:heart",
+			url: "/sponsor/",
 			showName: false,
 		},
 		// {

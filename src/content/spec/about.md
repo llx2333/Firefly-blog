@@ -1,27 +1,21 @@
 # 关于我 / About Me
 
-你好！我是 **夏叶** ，一个在数字世界中默默无闻的一片叶子。
+你好，我是 **llx2333**。
 
-## 🛠️ 关于本站
+这里是我的自留地——什么都种一点：折腾的记录、踩过的坑、偶尔冒出来的想法，种下去就等它自己长。
 
-这个网站使用 **Astro** 框架构建，采用了 [Firefly](https://github.com/CuteLeaf/Firefly) 模板，Firefly 是基于 [Fuwari](https://github.com/saicaca/fuwari) 的二次开发。
+## 🌱 地里种什么
 
-**Firefly** 是一款基于 Astro 框架和 Fuwari 模板开发的清新美观且现代化个人博客主题模板，专为技术爱好者和内容创作者设计。该主题融合了现代 Web 技术栈，提供了丰富的功能模块和高度可定制的界面，让您能够轻松打造出专业且美观的个人博客网站。
+- 折腾笔记：编辑器、工具链，还有那些让人生气又上头的问题
+- 随手记：想到什么写什么，更新看心情
 
+## 📮 找到我
 
-**🖥️在线预览： [Firefly - Demo site](https://firefly.cuteleaf.cn/)**
-
-**📝Firefly使用文档： [https://docs-firefly.cuteleaf.cn](https://docs-firefly.cuteleaf.cn/)**
-
-**⭐Firefly开源地址：[https://github.com/CuteLeaf/Firefly](https://github.com/CuteLeaf/Firefly)** 
-
-**⭐Fuwari开源地址：[https://github.com/saicaca/fuwari](https://github.com/saicaca/fuwari)**
-
-::github{repo="CuteLeaf/Firefly"}
-
-::github{repo="saicaca/fuwari"}
+- GitHub：[llx2333](https://github.com/llx2333)
+- Gitee：[llx2333](https://gitee.com/llx2333)
+- Bilibili：[我的主页](https://space.bilibili.com/1439787435)
+- Email：ignoramusm@qq.com
 
 ---
 
-*感谢你的来访！希望在这里能找到对你有用的内容！*
-
+*地里的东西随便看，不用打招呼。*

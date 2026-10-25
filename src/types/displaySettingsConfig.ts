@@ -34,6 +34,9 @@ export type DisplaySettingsConfig = {
 	// 壁纸模式切换开关
 	wallpaperModeSwitchable: boolean;
 
+	// 壁纸风格切换开关（主组 src / 备用组 altSrc，备用组未配置时不生效）
+	wallpaperSetSwitchable: boolean;
+
 	// 全屏壁纸布局切换开关（classic / hero）
 	fullscreenLayoutSwitchable: boolean;
 
@@ -55,6 +58,6 @@ export type DisplaySettingsConfig = {
 
 	// ── 特效 (Effects) ────────────────────────────────────
 
-	// 樱花特效开关
-	sakuraSwitchable: boolean;
+	// 自定义氛围特效（落叶/萤火虫/光斑/轻花瓣/风絮）逐项开关
+	ambientEffectsSwitchable: boolean;
 };

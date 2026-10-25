@@ -174,7 +174,7 @@ const postUrlPrefix = url("/posts/");
 
     // Render month labels (numbers 1-12)
     monthsEl.innerHTML = Array.from({length: 12}, (_, i) =>
-      `<span class="text-[10px] text-neutral-400 dark:text-neutral-500 text-center">${i + 1}</span>`
+      `<span class="text-[10px] text-neutral-400 dark:text-neutral-400 text-center">${i + 1}</span>`
     ).join('');
 
     // Build weekly post counts: heatmapData[month][week] = count
@@ -190,22 +190,20 @@ const postUrlPrefix = url("/posts/");
 
     // Find max for scaling
     // Render grid cells: 12 columns × 4 rows, row-major order
-    // Use discrete opacity levels so low counts are still clearly visible
-    const opacityLevels = [0, 0.45, 0.65, 0.85, 1];
+    // 档位上色用 CSS 类（heatmap-l0..l4，见 <style>）：明/暗各一套 ramp，
+    // 主题切换由 CSS 自动跟随，不用 JS 重渲染。批八的单一 color-mix 阶梯
+    // 在暗色下空档只比卡片底亮 5% L，文章少时整面墙全是空档色，糊成黑一坨。
     let cellsHtml = '';
     for (let week = 0; week < 4; week++) {
       for (let month = 0; month < 12; month++) {
         const count = heatmapData[month][week];
         const level = Math.min(count, 4);
-        const bgStyle = count === 0
-          ? 'background-color: var(--btn-plain-bg-hover)'
-          : `background-color: var(--primary); opacity: ${opacityLevels[level]}`;
         // Generate tooltip text using i18n template
         const tooltip = heatmapWeekTemplate
           .replace('{month}', month + 1)
           .replace('{week}', week + 1)
           .replace('{count}', count);
-        cellsHtml += `<div class="heatmap-cell rounded-sm" style="${bgStyle}" data-tooltip="${tooltip}" data-month="${month}"></div>`;
+        cellsHtml += `<div class="heatmap-cell heatmap-l${count === 0 ? 0 : level} rounded-sm" data-tooltip="${tooltip}" data-month="${month}"></div>`;
       }
     }
     gridEl.innerHTML = cellsHtml;
@@ -644,5 +642,40 @@ const postUrlPrefix = url("/posts/");
   }
   :global(.heatmap-cell:hover) {
     box-shadow: 0 0 1px 1.5px var(--primary, oklch(0.55 0.15 250));
+  }
+
+  /* 热力图档位（批九R4）：明暗各一套 ramp。暗色空档要明显亮过卡片底
+     （--card-bg L≈0.23，空档抬到 ≈0.37）才看得见方块；顶格向白提亮拉开层次。
+     亮色空档抄 GitHub 贡献热力图：中性灰表示「无提交」，绿色只留给有档位的；
+     亮色 primary 太浅（L≈0.70），9% 绿染对白底 ΔL 仅 0.027，故空档换灰 */
+  :global(.heatmap-l0) {
+    background-color: color-mix(in oklab, #64748b 24%, var(--card-bg));
+  }
+  :global(.heatmap-l1) {
+    background-color: color-mix(in oklab, var(--primary) 38%, var(--card-bg));
+  }
+  :global(.heatmap-l2) {
+    background-color: color-mix(in oklab, var(--primary) 60%, var(--card-bg));
+  }
+  :global(.heatmap-l3) {
+    background-color: color-mix(in oklab, var(--primary) 80%, var(--card-bg));
+  }
+  :global(.heatmap-l4) {
+    background-color: var(--primary);
+  }
+  :global(.dark .heatmap-l0) {
+    background-color: color-mix(in oklab, var(--primary) 26%, var(--card-bg));
+  }
+  :global(.dark .heatmap-l1) {
+    background-color: color-mix(in oklab, var(--primary) 46%, var(--card-bg));
+  }
+  :global(.dark .heatmap-l2) {
+    background-color: color-mix(in oklab, var(--primary) 66%, var(--card-bg));
+  }
+  :global(.dark .heatmap-l3) {
+    background-color: color-mix(in oklab, var(--primary) 84%, var(--card-bg));
+  }
+  :global(.dark .heatmap-l4) {
+    background-color: color-mix(in oklab, var(--primary) 72%, white);
   }
 </style>

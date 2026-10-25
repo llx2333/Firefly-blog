@@ -25,13 +25,14 @@ const DISABLED_SETTINGS: DisplaySettingsConfig = {
 	cardBorderSwitchable: false,
 	cardFollowThemeSwitchable: false,
 	wallpaperModeSwitchable: false,
+	wallpaperSetSwitchable: false,
 	fullscreenLayoutSwitchable: false,
 	wavesSwitchable: false,
 	gradientSwitchable: false,
 	bannerTitleSwitchable: false,
 	bannerCarouselSwitchable: false,
 	overlaySwitchable: false,
-	sakuraSwitchable: false,
+	ambientEffectsSwitchable: false,
 };
 
 // 读取总开关环境变量

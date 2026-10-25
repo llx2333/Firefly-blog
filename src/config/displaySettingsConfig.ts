@@ -21,7 +21,10 @@ export const displaySettingsConfig: DisplaySettingsConfig =
 		// 无需改动本文件：PUBLIC_DISPLAY_SETTINGS=true
 		// 环境变量优先级更高，未设置或取值无法识别时使用这里的值
 		// 生产环境建议默认关闭，只在开发调试环境开启用来预览效果
-		enable: false,
+		// 批四起打开总开关：访客需要在页面菜单里切换壁纸风格（田园/流萤）等显示设置。
+		// 代价是面板组件打进客户端产物（+33KB/页 量级）；部署平台也可用
+		// PUBLIC_DISPLAY_SETTINGS=true 环境变量控制（优先级更高）
+		enable: true,
 
 		// ── 外观 (Appearance) ──────────────────────────────────
 
@@ -41,6 +44,9 @@ export const displaySettingsConfig: DisplaySettingsConfig =
 
 		// 壁纸模式切换开关
 		wallpaperModeSwitchable: true,
+
+		// 壁纸风格切换开关（田园/流萤，需 backgroundWallpaper.altSrc 配置了备用组）
+		wallpaperSetSwitchable: true,
 
 		// 全屏壁纸布局切换开关（classic / hero）
 		fullscreenLayoutSwitchable: true,
@@ -67,6 +73,6 @@ export const displaySettingsConfig: DisplaySettingsConfig =
 
 		// ── 特效 (Effects) ────────────────────────────────────
 
-		// 樱花特效开关
-		sakuraSwitchable: true,
+		// 自定义氛围特效（落叶/萤火虫/光斑/轻花瓣/风絮）逐项开关
+		ambientEffectsSwitchable: true,
 	});

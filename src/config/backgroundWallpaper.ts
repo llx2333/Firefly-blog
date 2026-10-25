@@ -1,10 +1,12 @@
 import type { BackgroundWallpaperConfig } from "@/types/backgroundWallpaper";
+import { profileConfig } from "./profileConfig";
 
 export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	// 壁纸模式："banner" 横幅壁纸，"fullscreen" 全屏壁纸，"overlay" 覆盖透明，"none" 纯色背景无壁纸
 	mode: "fullscreen",
 	// 是否启用背景视频播放，配置后将在导航栏显示视频播放按钮
-	playerEnable: true,
+	// 批二下架主题自带背景视频（流萤 MP4，作者图床外链）；想恢复：改回 true 并放开下方 playerUrl
+	playerEnable: false,
 	/**
 	 * 背景图片配置
 	 * 图片路径支持三种格式：
@@ -35,33 +37,366 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	 *   "assets/images/MobileWallpaper/m2.avif",
 	 * ],
 	 */
-	src: {
-		// 桌面背景图片（支持单张或多张随机）
-		// desktop: "assets/images/DesktopWallpaper/d1.avif",
-		desktop: [
-			"assets/images/DesktopWallpaper/d1.avif",
-			"assets/images/DesktopWallpaper/d2.avif",
-			"assets/images/DesktopWallpaper/d3.avif",
-			"assets/images/DesktopWallpaper/d4.avif",
-			"assets/images/DesktopWallpaper/d5.avif",
-			"assets/images/DesktopWallpaper/d6.avif",
-		],
-		// 移动背景图片（支持单张或多张随机）
-		// mobile: "assets/images/MobileWallpaper/m1.avif",
-		mobile: [
-			"assets/images/MobileWallpaper/m1.avif",
-			"assets/images/MobileWallpaper/m2.avif",
-			"assets/images/MobileWallpaper/m3.avif",
-			"assets/images/MobileWallpaper/m4.avif",
-			"assets/images/MobileWallpaper/m5.avif",
-			"assets/images/MobileWallpaper/m6.avif",
-		],
-		// 背景视频播放地址
-		// 支持单个视频路径（字符串）或多个视频循环（数组，参考上面壁纸配置）
-		// 支持远程视频URL，本地视频请放在 public/assets/videos/ 目录下
-		// playerUrl: "/assets/videos/firefly.mp4",
-		playerUrl: "https://bed.twoleaf.cn/file/1785658612716_firefly.mp4",
-	},
+		src: {
+			// 桌面背景图片（支持单张或多张随机）
+			// 批六起主组 = 通用池（四季常驻轮播）+ 季节池（desktopSeasonal，只在对应季节并入）
+			// 批七起新增主题配对池（desktopThemePairs）：同景亮/暗双版占一个轮播位，
+			// 按当前亮暗色主题只下载显示对应版本；配对成员不再出现在单张数组里
+			desktop: [
+				"assets/images/DesktopWallpaper/garden-1.avif",
+				"assets/images/DesktopWallpaper/garden-2.avif",
+				"assets/images/DesktopWallpaper/garden-3.avif",
+				"assets/images/DesktopWallpaper/garden-4.avif",
+				"assets/images/DesktopWallpaper/garden-5.avif",
+				"assets/images/DesktopWallpaper/d1.avif",
+				"assets/images/DesktopWallpaper/d2.avif",
+				"assets/images/DesktopWallpaper/pd001.avif",
+				"assets/images/DesktopWallpaper/pd013.avif",
+				"assets/images/DesktopWallpaper/pd022.avif",
+				"assets/images/DesktopWallpaper/pd023.avif",
+				"assets/images/DesktopWallpaper/pd025.avif",
+				"assets/images/DesktopWallpaper/pd035.avif",
+				"assets/images/DesktopWallpaper/pd040.avif",
+				"assets/images/DesktopWallpaper/pd045.avif",
+				"assets/images/DesktopWallpaper/pd068.avif",
+				"assets/images/DesktopWallpaper/pd073.avif",
+				"assets/images/DesktopWallpaper/pd074.avif",
+				"assets/images/DesktopWallpaper/pd075.avif",
+				"assets/images/DesktopWallpaper/pd076.avif",
+				"assets/images/DesktopWallpaper/pd080.avif",
+				"assets/images/DesktopWallpaper/pcd037.avif",
+				"assets/images/DesktopWallpaper/pcd074.avif",
+				"assets/images/DesktopWallpaper/garden-6.avif",
+			],
+			// 移动背景图片（支持单张或多张随机）；garden-m6 批六按用户清单剔除
+			mobile: [
+				"assets/images/MobileWallpaper/garden-m1.avif",
+				"assets/images/MobileWallpaper/garden-m2.avif",
+				"assets/images/MobileWallpaper/garden-m3.avif",
+				"assets/images/MobileWallpaper/garden-m4.avif",
+				"assets/images/MobileWallpaper/m1.avif",
+				"assets/images/MobileWallpaper/m2.avif",
+				"assets/images/MobileWallpaper/pm003.avif",
+				"assets/images/MobileWallpaper/pm005.avif",
+				"assets/images/MobileWallpaper/pm031.avif",
+				"assets/images/MobileWallpaper/pm033.avif",
+				"assets/images/MobileWallpaper/pm034.avif",
+				"assets/images/MobileWallpaper/pm035.avif",
+				"assets/images/MobileWallpaper/pm037.avif",
+				"assets/images/MobileWallpaper/pm039.avif",
+				"assets/images/MobileWallpaper/pm040.avif",
+				"assets/images/MobileWallpaper/pcm033.avif",
+				"assets/images/MobileWallpaper/pcm034.avif",
+			],
+			// 季节池（批六/批七）：只收季节特征极强的图（雪=冬、落瓣=春、柿子/落叶=秋…），
+			// 客户端按访问月份把当季池并入轮播，其余季节的图躺在 <template> 里不会被下载；
+			// 打标依据 = 生成提示词 + 目视核对；批六特型按生成脚本注释打标
+			// （cd065-068/cm029-030 冬，cd069-070/cm031 春，cd071-073/cm032 秋，cd074/cm033-034 通用）
+			// 批七：季节感极强的对成员移入 desktopThemePairs/mobileThemePairs 带 season 字段
+			desktopSeasonal: {
+				spring: [
+					"assets/images/DesktopWallpaper/pd078.avif",
+					"assets/images/DesktopWallpaper/pcd069.avif",
+					"assets/images/DesktopWallpaper/pcd070.avif",
+				],
+				summer: [],
+				autumn: [
+					"assets/images/DesktopWallpaper/pcd071.avif",
+					"assets/images/DesktopWallpaper/pcd072.avif",
+					"assets/images/DesktopWallpaper/pcd073.avif",
+				],
+				winter: [
+					"assets/images/DesktopWallpaper/pd051.avif",
+					"assets/images/DesktopWallpaper/pd077.avif",
+					"assets/images/DesktopWallpaper/pcd065.avif",
+					"assets/images/DesktopWallpaper/pcd066.avif",
+					"assets/images/DesktopWallpaper/pcd067.avif",
+					"assets/images/DesktopWallpaper/pcd068.avif",
+				],
+			},
+			mobileSeasonal: {
+				spring: [
+					"assets/images/MobileWallpaper/pm038.avif",
+					"assets/images/MobileWallpaper/pcm031.avif",
+				],
+				summer: [],
+				autumn: [
+					"assets/images/MobileWallpaper/garden-m5.avif",
+					"assets/images/MobileWallpaper/pcm032.avif",
+				],
+				winter: [
+					"assets/images/MobileWallpaper/pm036.avif",
+					"assets/images/MobileWallpaper/pcm029.avif",
+					"assets/images/MobileWallpaper/pcm030.avif",
+				],
+			},
+			// 主题配对池（批七）：同景亮/暗双版，一个配对一个轮播位；
+			// light = 明亮/晨雾版（亮色主题显示），dark = 暗一点/金昏暖光版（暗色主题显示），
+			// 判定依据 = 亮度测量（pair_analysis.json 的 L 值）+ 57 对逐对目视复核；
+			// 带 season 的配对只在对应季节进入轮播
+			desktopThemePairs: [
+				{
+					light: "assets/images/DesktopWallpaper/pd007.avif",
+					dark: "assets/images/DesktopWallpaper/pd008.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd009.avif",
+					dark: "assets/images/DesktopWallpaper/pd010.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd015.avif",
+					dark: "assets/images/DesktopWallpaper/pd016.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd019.avif",
+					dark: "assets/images/DesktopWallpaper/pd020.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd029.avif",
+					dark: "assets/images/DesktopWallpaper/pd030.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd037.avif",
+					dark: "assets/images/DesktopWallpaper/pd038.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd041.avif",
+					dark: "assets/images/DesktopWallpaper/pd042.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd053.avif",
+					dark: "assets/images/DesktopWallpaper/pd054.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd055.avif",
+					dark: "assets/images/DesktopWallpaper/pd056.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd057.avif",
+					dark: "assets/images/DesktopWallpaper/pd058.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd001.avif",
+					dark: "assets/images/DesktopWallpaper/pcd002.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd005.avif",
+					dark: "assets/images/DesktopWallpaper/pcd006.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd007.avif",
+					dark: "assets/images/DesktopWallpaper/pcd008.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd009.avif",
+					dark: "assets/images/DesktopWallpaper/pcd010.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd011.avif",
+					dark: "assets/images/DesktopWallpaper/pcd012.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd013.avif",
+					dark: "assets/images/DesktopWallpaper/pcd014.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd015.avif",
+					dark: "assets/images/DesktopWallpaper/pcd016.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd017.avif",
+					dark: "assets/images/DesktopWallpaper/pcd018.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd019.avif",
+					dark: "assets/images/DesktopWallpaper/pcd020.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd021.avif",
+					dark: "assets/images/DesktopWallpaper/pcd022.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd023.avif",
+					dark: "assets/images/DesktopWallpaper/pcd024.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd026.avif",
+					dark: "assets/images/DesktopWallpaper/pcd025.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd027.avif",
+					dark: "assets/images/DesktopWallpaper/pcd028.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd031.avif",
+					dark: "assets/images/DesktopWallpaper/pcd032.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd033.avif",
+					dark: "assets/images/DesktopWallpaper/pcd034.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd035.avif",
+					dark: "assets/images/DesktopWallpaper/pcd036.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd039.avif",
+					dark: "assets/images/DesktopWallpaper/pcd040.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd042.avif",
+					dark: "assets/images/DesktopWallpaper/pcd041.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd043.avif",
+					dark: "assets/images/DesktopWallpaper/pcd044.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd045.avif",
+					dark: "assets/images/DesktopWallpaper/pcd046.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd047.avif",
+					dark: "assets/images/DesktopWallpaper/pcd048.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd049.avif",
+					dark: "assets/images/DesktopWallpaper/pcd050.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd051.avif",
+					dark: "assets/images/DesktopWallpaper/pcd052.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd057.avif",
+					dark: "assets/images/DesktopWallpaper/pcd058.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd059.avif",
+					dark: "assets/images/DesktopWallpaper/pcd060.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd061.avif",
+					dark: "assets/images/DesktopWallpaper/pcd062.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pcd063.avif",
+					dark: "assets/images/DesktopWallpaper/pcd064.avif",
+				},
+				{
+					light: "assets/images/DesktopWallpaper/pd011.avif",
+					dark: "assets/images/DesktopWallpaper/pd012.avif",
+					season: "spring",
+				},
+			],
+			mobileThemePairs: [
+				{
+					light: "assets/images/MobileWallpaper/pm001.avif",
+					dark: "assets/images/MobileWallpaper/pm002.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm007.avif",
+					dark: "assets/images/MobileWallpaper/pm008.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm013.avif",
+					dark: "assets/images/MobileWallpaper/pm014.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm019.avif",
+					dark: "assets/images/MobileWallpaper/pm020.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm023.avif",
+					dark: "assets/images/MobileWallpaper/pm024.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm025.avif",
+					dark: "assets/images/MobileWallpaper/pm026.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm001.avif",
+					dark: "assets/images/MobileWallpaper/pcm002.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm005.avif",
+					dark: "assets/images/MobileWallpaper/pcm006.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm007.avif",
+					dark: "assets/images/MobileWallpaper/pcm008.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm009.avif",
+					dark: "assets/images/MobileWallpaper/pcm010.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm011.avif",
+					dark: "assets/images/MobileWallpaper/pcm012.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm013.avif",
+					dark: "assets/images/MobileWallpaper/pcm014.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm015.avif",
+					dark: "assets/images/MobileWallpaper/pcm016.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm017.avif",
+					dark: "assets/images/MobileWallpaper/pcm018.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm019.avif",
+					dark: "assets/images/MobileWallpaper/pcm020.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm021.avif",
+					dark: "assets/images/MobileWallpaper/pcm022.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pcm028.avif",
+					dark: "assets/images/MobileWallpaper/pcm027.avif",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm009.avif",
+					dark: "assets/images/MobileWallpaper/pm010.avif",
+					season: "autumn",
+				},
+				{
+					light: "assets/images/MobileWallpaper/pm017.avif",
+					dark: "assets/images/MobileWallpaper/pm018.avif",
+					season: "spring",
+				},
+			],
+			// 背景视频播放地址
+			// 支持单个视频路径（字符串）或多个视频循环（数组，参考上面壁纸配置）
+			// 支持远程视频URL，本地视频请放在 public/assets/videos/ 目录下
+			// playerUrl: "/assets/videos/firefly.mp4",
+			// 主题原配视频（作者图床）批二下架；换成自己的视频时放开并改地址，同时把 playerEnable 改回 true
+			// playerUrl: "https://bed.twoleaf.cn/file/1785658612716_firefly.mp4",
+		},
+		// 备用壁纸组：主题原配流萤壁纸（批四恢复入库，d3-d6 / m3-m6 一并启用凑满 6+6）
+		// 设置面板「壁纸风格」可在 主组(田园) / 这组(流萤) 间切换，默认田园；
+		// 图片躺在 <template> 里，不切到流萤就不会下载，不影响默认加载速度
+		altSrc: {
+			desktop: [
+				"assets/images/DesktopWallpaper/d1.avif",
+				"assets/images/DesktopWallpaper/d2.avif",
+				"assets/images/DesktopWallpaper/d3.avif",
+				"assets/images/DesktopWallpaper/d4.avif",
+				"assets/images/DesktopWallpaper/d5.avif",
+				"assets/images/DesktopWallpaper/d6.avif",
+			],
+			mobile: [
+				"assets/images/MobileWallpaper/m1.avif",
+				"assets/images/MobileWallpaper/m2.avif",
+				"assets/images/MobileWallpaper/m3.avif",
+				"assets/images/MobileWallpaper/m4.avif",
+				"assets/images/MobileWallpaper/m5.avif",
+				"assets/images/MobileWallpaper/m6.avif",
+			],
+		},
 	// 横幅壁纸和全屏壁纸共享配置
 	common: {
 		// 壁纸遮罩暗度，让横幅文字显示更清晰，0-1之间，值越大越暗
@@ -73,9 +408,9 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 是否启用主页横幅文字
 			enable: true,
 			// 主页横幅主标题
-			title: "自留地",
+			title: "My Little Field",
 			// 主页横幅主标题字体大小
-			titleSize: "4.5rem",
+			titleSize: "3rem",
 			// 主页横幅副标题
 			subtitle: [
 				"想种什么种什么",
@@ -120,40 +455,15 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 是否显示标题下方的链接图标
 			linksEnable: true,
 			// 首页横幅标题下方的链接图标（可选，支持 showName 显示文字）
-			// 图标支持 Iconify 格式：fa7-brands:github、fa7-solid:envelope、mdi:rss 等
-			links: [
-				{
-					name: "GitHub",
-					icon: "fa7-brands:github",
-					url: "https://github.com/llx2333",
-					// showName: true,
-				},
-				{
-					name: "Gitee",
-					url: "https://gitee.com/llx2333",
-					icon: "fa7-brands:gitee",
-				},
-				{
-					name: "Email",
-					icon: "fa7-solid:envelope",
-					url: "mailto:ignoramusm@qq.com",
-				},
-				{
-					name: "Sponsor",
-					icon: "material-symbols:favorite",
-					url: "https://blog.cuteleaf.cn/sponsor/",
-				},
-				// {
-				// 	name: "RSS",
-				// 	icon: "fa7-solid:rss",
-				// 	url: "/rss/",
-				// },
-			],
+			// 单一数据源：与侧栏身份卡、导航「链接」下拉共用 profileConfig.links ——
+			// 加/改社交入口只需改 profileConfig.ts 的 links 数组，三处自动同步
+			links: profileConfig.links,
 		},
 		// 壁纸轮播配置，横幅壁纸和全屏壁纸共享，仅在配置多张图片时生效
 		carousel: {
 			// 是否启用壁纸轮播；关闭时保持每次刷新随机显示一张
-			enable: false,
+			// 批四打开：轮播默认转起来，访客侧菜单也能随时开关
+			enable: true,
 			// 轮播切换间隔（毫秒）
 			interval: 5000,
 			// 过渡效果: 'fade' 渐变 | 'zoom' 缩放 | 'slide' 滑动 | 'kenburns' 旋转木马

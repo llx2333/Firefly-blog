@@ -4,25 +4,105 @@ import ScrollDownIndicator from "@/components/controls/ScrollDownIndicator.astro
 import BackgroundPlayer from "@/components/features/BackgroundPlayer.astro";
 import BannerHomeTextOverlay from "@/components/layout/BannerHomeTextOverlay.astro";
 import BannerPostMetaOverlay from "@/components/layout/BannerPostMetaOverlay.astro";
-import { backgroundWallpaper } from "@/config";
+import { backgroundWallpaper, displaySettingsConfig } from "@/config";
 import type {
 	BannerPostMeta,
 	BannerVisibilityState,
 } from "@/utils/banner-visibility-utils";
-import type { BackgroundImages } from "@/utils/layout-utils";
+import type {
+	BackgroundImages,
+	SeasonalBackgroundImages,
+	ThemePairedBackgroundImages,
+} from "@/utils/layout-utils";
+import type { ThemeWallpaperPair, WallpaperSeason } from "@/types/backgroundWallpaper";
 
 interface Props {
 	state: BannerVisibilityState;
 	backgroundImages: BackgroundImages;
+	/** 季节池（批六）：主组里季节特征极强的图，只在对应季节并入轮播；判定在客户端做 */
+	seasonalBackgroundImages?: SeasonalBackgroundImages;
+	/** 主题配对池（批七）：亮/暗近似双版的场景对，一个配对一个轮播位；主题判定在客户端做 */
+	themePairedImages?: ThemePairedBackgroundImages;
+	/** 备用壁纸组（流萤）；未配置时传空数组即可，不会渲染也不会出现切换入口 */
+	altBackgroundImages?: BackgroundImages;
 	title?: string;
 	bannerPostMeta?: BannerPostMeta;
 }
 
-const { state, backgroundImages, title, bannerPostMeta } = Astro.props;
+const {
+	state,
+	backgroundImages,
+	seasonalBackgroundImages,
+	themePairedImages,
+	altBackgroundImages,
+	title,
+	bannerPostMeta,
+} = Astro.props;
 const wallpaperPosition = state.isFullscreenMode
 	? (backgroundWallpaper.fullscreen?.position ??
 		backgroundWallpaper.banner?.position)
 	: backgroundWallpaper.banner?.position;
+
+// 壁纸风格分组：主组（田园 src）+ 备用组（流萤 altSrc，配置了才渲染）。
+// 两组 slide 并存于 <template>，切到哪组才下载哪组，互不拖累加载速度
+const hasAltImages =
+	!!altBackgroundImages &&
+	(altBackgroundImages.desktop.length > 0 ||
+		altBackgroundImages.mobile.length > 0);
+const wallpaperGroups: { set: "main" | "alt"; images: BackgroundImages }[] = [
+	{ set: "main", images: backgroundImages },
+	...(hasAltImages
+		? [{ set: "alt" as const, images: altBackgroundImages! }]
+		: []),
+];
+// 风格切换是否生效：面板开关打开且备用组真的存在（SSR 传给内联脚本，
+// 脚本据此决定要不要尊重 localStorage 里存的风格）
+const isWallpaperSetSwitchable =
+	displaySettingsConfig.wallpaperSetSwitchable && hasAltImages;
+
+// 季节池（批六）：展平成 slide 列表，渲染成主组里带 data-season 的额外 slide。
+// 四季全部渲染（都在 <template> 里，不当季不下载），客户端脚本按访问月份过滤；
+// 季节判定不在 SSR 做——静态构建会把季节冻结在构建日
+const SEASON_ORDER: WallpaperSeason[] = [
+	"spring",
+	"summer",
+	"autumn",
+	"winter",
+];
+type SeasonalSlide = { season: WallpaperSeason; src: string };
+const seasonalSlides: { desktop: SeasonalSlide[]; mobile: SeasonalSlide[] } = {
+	desktop: SEASON_ORDER.flatMap((season) =>
+		(seasonalBackgroundImages?.desktop?.[season] ?? []).map((src) => ({
+			season,
+			src,
+		})),
+	),
+	mobile: SEASON_ORDER.flatMap((season) =>
+		(seasonalBackgroundImages?.mobile?.[season] ?? []).map((src) => ({
+			season,
+			src,
+		})),
+	),
+};
+const hasSeasonalSlides =
+	seasonalSlides.desktop.length > 0 || seasonalSlides.mobile.length > 0;
+
+// 主题配对池（批七）：一个配对渲染成一个主组 slide，模板里亮/暗两版都躺着
+// （<template> 不发起下载），客户端脚本按当前主题只实例化一版；切主题直接换。
+// 带 season 的配对和季节 slide 一样只在对应季节放行
+type PairSlide = { pair: ThemeWallpaperPair; id: string };
+const pairSlides: { desktop: PairSlide[]; mobile: PairSlide[] } = {
+	desktop: (themePairedImages?.desktop ?? []).map((pair, index) => ({
+		pair,
+		id: `pair-d-${index}`,
+	})),
+	mobile: (themePairedImages?.mobile ?? []).map((pair, index) => ({
+		pair,
+		id: `pair-m-${index}`,
+	})),
+};
+const hasPairSlides =
+	pairSlides.desktop.length > 0 || pairSlides.mobile.length > 0;
 ---
 
 <!-- Wallpaper - 如果允许切换则始终渲染，否则只渲染当前模式 -->
@@ -36,10 +116,13 @@ const wallpaperPosition = state.isFullscreenMode
          data-carousel-enabled={state.bannerCarouselEnabledDefault}
          data-carousel-switchable={state.bannerCarouselSwitchable}
          data-carousel-interval={state.bannerCarouselInterval}
-         data-carousel-effect={state.bannerCarouselEffect}>
-        {/* 图片放在 <template> 里，浏览器不会发起请求；由轮播脚本挑中随机那张后克隆进 DOM */}
-        {backgroundImages.mobile.map((src, index) => (
-            <div class:list={["slide-item block lg:hidden", index === 0 && "active"]} data-index={index}>
+         data-carousel-effect={state.bannerCarouselEffect}
+         data-wallpaper-set-switchable={isWallpaperSetSwitchable}
+         data-active-set="main">
+        {/* 图片放在 <template> 里，浏览器不会发起请求；由轮播脚本挑中随机那张后克隆进 DOM。
+            两组（main=田园 / alt=流萤）都渲染，脚本只实例化当前风格那组 */}
+        {wallpaperGroups.map((group) => group.images.mobile.map((src, index) => (
+            <div class:list={["slide-item block lg:hidden", index === 0 && "active"]} data-index={index} data-wallpaper-set={group.set}>
                 <template>
                     <ImageWrapper
                         alt="Mobile background image of the blog"
@@ -54,9 +137,9 @@ const wallpaperPosition = state.isFullscreenMode
                     />
                 </template>
             </div>
-        ))}
-        {backgroundImages.desktop.map((src, index) => (
-            <div class:list={["slide-item hidden lg:block", index === 0 && "active"]} data-index={index}>
+        )))}
+        {wallpaperGroups.map((group) => group.images.desktop.map((src, index) => (
+            <div class:list={["slide-item hidden lg:block", index === 0 && "active"]} data-index={index} data-wallpaper-set={group.set}>
                 <template>
                     <ImageWrapper
                         alt="Desktop background image of the blog"
@@ -69,6 +152,110 @@ const wallpaperPosition = state.isFullscreenMode
                         loading="eager"
                         quality={state.configQuality}
                     />
+                </template>
+            </div>
+        )))}
+        {/* 季节池 slide（批六）：属于主组但带 data-season，脚本只在其季节放行；
+            同样躺在 <template> 里，不当季一张都不下载。不带 active——脚本初始化时会重抽 */}
+        {hasSeasonalSlides && seasonalSlides.mobile.map((item, index) => (
+            <div class:list={["slide-item block lg:hidden"]} data-index={`seasonal-m-${index}`} data-wallpaper-set="main" data-season={item.season}>
+                <template>
+                    <ImageWrapper
+                        alt="Mobile background image of the blog"
+                        class="object-cover h-full w-full"
+                        src={item.src}
+                        position={wallpaperPosition}
+                        width={828}
+                        widths={[640, 828]}
+                        sizes="100vw"
+                        loading="eager"
+                        quality={state.mobileQuality}
+                    />
+                </template>
+            </div>
+        ))}
+        {hasSeasonalSlides && seasonalSlides.desktop.map((item, index) => (
+            <div class:list={["slide-item hidden lg:block"]} data-index={`seasonal-d-${index}`} data-wallpaper-set="main" data-season={item.season}>
+                <template>
+                    <ImageWrapper
+                        alt="Desktop background image of the blog"
+                        class="object-cover h-full"
+                        src={item.src}
+                        position={wallpaperPosition}
+                        width={1920}
+                        widths={[1280, 1920]}
+                        sizes="100vw"
+                        loading="eager"
+                        quality={state.configQuality}
+                    />
+                </template>
+            </div>
+        ))}
+        {/* 主题配对 slide（批七）：一个配对一个轮播位，模板里亮/暗两版各自包在
+            display:contents 的 wrapper 里（不参与布局，LQIP 定位不受影响）；
+            脚本只把当前主题那版的子节点搬进 slide，模板保留以便切主题时换回。
+            带 season 的配对同样只在当季进入轮播池 */}
+        {hasPairSlides && pairSlides.mobile.map((item, index) => (
+            <div class:list={["slide-item block lg:hidden"]} data-index={item.id} data-wallpaper-set="main" data-season={item.pair.season}>
+                <template>
+                    <div data-theme-variant="light" style="display:contents">
+                        <ImageWrapper
+                            alt="Mobile background image of the blog"
+                            class="object-cover h-full w-full"
+                            src={item.pair.light}
+                            position={wallpaperPosition}
+                            width={828}
+                            widths={[640, 828]}
+                            sizes="100vw"
+                            loading="eager"
+                            quality={state.mobileQuality}
+                        />
+                    </div>
+                    <div data-theme-variant="dark" style="display:contents">
+                        <ImageWrapper
+                            alt="Mobile background image of the blog"
+                            class="object-cover h-full w-full"
+                            src={item.pair.dark}
+                            position={wallpaperPosition}
+                            width={828}
+                            widths={[640, 828]}
+                            sizes="100vw"
+                            loading="eager"
+                            quality={state.mobileQuality}
+                        />
+                    </div>
+                </template>
+            </div>
+        ))}
+        {hasPairSlides && pairSlides.desktop.map((item, index) => (
+            <div class:list={["slide-item hidden lg:block"]} data-index={item.id} data-wallpaper-set="main" data-season={item.pair.season}>
+                <template>
+                    <div data-theme-variant="light" style="display:contents">
+                        <ImageWrapper
+                            alt="Desktop background image of the blog"
+                            class="object-cover h-full"
+                            src={item.pair.light}
+                            position={wallpaperPosition}
+                            width={1920}
+                            widths={[1280, 1920]}
+                            sizes="100vw"
+                            loading="eager"
+                            quality={state.configQuality}
+                        />
+                    </div>
+                    <div data-theme-variant="dark" style="display:contents">
+                        <ImageWrapper
+                            alt="Desktop background image of the blog"
+                            class="object-cover h-full"
+                            src={item.pair.dark}
+                            position={wallpaperPosition}
+                            width={1920}
+                            widths={[1280, 1920]}
+                            sizes="100vw"
+                            loading="eager"
+                            quality={state.configQuality}
+                        />
+                    </div>
                 </template>
             </div>
         ))}
@@ -201,6 +388,25 @@ const wallpaperPosition = state.isFullscreenMode
             var effect = container.dataset.carouselEffect || 'fade';
             var transitioning = false;
 
+            // 当前壁纸风格：main=田园（src）alt=流萤（altSrc）。
+            // 开关打开且 localStorage 存过 alt 才启用备用组；备用组没渲染时回退 main
+            var activeSet = 'main';
+            if (container.dataset.wallpaperSetSwitchable === 'true') {
+                try {
+                    if (localStorage.getItem('wallpaperSet') === 'alt') activeSet = 'alt';
+                } catch (e) {}
+                if (activeSet === 'alt' && !container.querySelector('.slide-item[data-wallpaper-set="alt"]')) {
+                    activeSet = 'main';
+                }
+            }
+            container.setAttribute('data-active-set', activeSet);
+
+            // 季节（批六）：北半球气象季节按访问月份判定（静态站不能在 SSR 算，会冻结在构建日）。
+            // 只过滤主组——季节 slide 都带 data-season；流萤组是主题原配插画，无季节语义，全量轮播
+            var SEASON_BY_MONTH = ['winter','winter','spring','spring','spring','summer','summer','summer','autumn','autumn','autumn','winter'];
+            var activeSeason = SEASON_BY_MONTH[new Date().getMonth()];
+            container.setAttribute('data-active-season', activeSeason);
+
             function isCarouselEnabled() {
                 if (!switchable) return defaultEnabled;
                 var stored = localStorage.getItem('bannerCarouselEnabled');
@@ -233,11 +439,59 @@ const wallpaperPosition = state.isFullscreenMode
                 }
             }
 
+            // 当前主题变体（批七）：与 setting-utils 的判定同源——documentElement 上的 dark 类。
+            // 注意：手动点切换按钮不派发 theme-change 事件（见 WavesEffect 同款注释），
+            // 所以配对换装同时挂 theme-change 监听 + MutationObserver 兜底
+            function currentThemeVariant() {
+                return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+            }
+
+            // 主题配对 slide（批七）：模板里亮/暗两版各躺在 display:contents 的 wrapper 里。
+            // 只把当前主题那版的子节点搬进 slide；模板保留不删，切主题时旧版放回模板、
+            // 新版取出来——DOM 节点不销毁，已下载的图不会重下，切回也是瞬间
+            function materializePair(slideEl, tpl, high) {
+                var want = currentThemeVariant();
+                var wrap = tpl.content.querySelector('[data-theme-variant="' + want + '"]');
+                if (!wrap) return false;
+                if (slideEl.getAttribute('data-current-variant') === want && slideEl.querySelector('img')) return true;
+                // 把当前版本的节点放回模板对应的 wrapper（appendChild 即 move，不复制）
+                var cur = slideEl.getAttribute('data-current-variant');
+                if (cur) {
+                    var curWrap = tpl.content.querySelector('[data-theme-variant="' + cur + '"]');
+                    if (curWrap) {
+                        var stale = [];
+                        for (var n = slideEl.firstChild; n; n = n.nextSibling) {
+                            if (n.nodeName !== 'TEMPLATE') stale.push(n);
+                        }
+                        for (var s = 0; s < stale.length; s++) curWrap.appendChild(stale[s]);
+                    }
+                }
+                var moved = [];
+                for (var m = wrap.firstChild; m; m = m.nextSibling) moved.push(m);
+                for (var i = 0; i < moved.length; i++) slideEl.appendChild(moved[i]);
+                slideEl.setAttribute('data-current-variant', want);
+                if (high) {
+                    // 与普通 materialize 的 LCP 处理一致：首张不做淡入、不留在占位层后面
+                    var img = slideEl.querySelector('img');
+                    if (img) {
+                        img.setAttribute('fetchpriority', 'high');
+                        img.classList.remove('opacity-0', 'transition-opacity', 'duration-500', 'ease-out');
+                        img.style.opacity = '1';
+                    }
+                    var ph = slideEl.querySelector('.lqip-placeholder');
+                    if (ph) ph.style.transition = 'none';
+                }
+                fadeInWhenLoaded(slideEl);
+                return true;
+            }
+
             // 把 <template> 里的图片实例化进 DOM —— 插入的那一刻才开始下载
             function materialize(slideEl, high) {
                 if (!slideEl) return false;
                 var tpl = slideEl.querySelector('template');
                 if (!tpl) return false;
+                // 主题配对 slide 走配对路径（模板保留）；普通 slide 走完即 remove 模板
+                if (tpl.content.querySelector('[data-theme-variant]')) return materializePair(slideEl, tpl, high);
                 var frag = tpl.content.cloneNode(true);
                 if (high) {
                     var img = frag.querySelector('img');
@@ -266,18 +520,36 @@ const wallpaperPosition = state.isFullscreenMode
                 materialize(slides[(index + 1) % slides.length], false);
             }
 
-            // 获取当前设备可见的 slide-item
-            function getVisibleSlides() {
+            // 获取当前设备 + 当前风格可见的 slide-item
+            function slidesOfSet(set, isLg) {
                 var all = container.querySelectorAll('.slide-item');
-                var isLg = window.innerWidth >= 1024;
-                var visible = [];
+                var out = [];
                 for (var i = 0; i < all.length; i++) {
                     var el = all[i];
+                    if ((el.getAttribute('data-wallpaper-set') || 'main') !== set) continue;
+                    // 主组季节过滤（批六）：非当季的季节 slide 直接跳过，等于不在池里
+                    if (set === 'main') {
+                        var season = el.getAttribute('data-season');
+                        if (season && season !== activeSeason) continue;
+                    }
                     if (isLg && el.classList.contains('lg:hidden')) continue;
                     if (!isLg && el.classList.contains('hidden') && !el.classList.contains('lg:hidden')) continue;
-                    visible.push(el);
+                    out.push(el);
+                }
+                return out;
+            }
+
+            function getVisibleSlides() {
+                var isLg = window.innerWidth >= 1024;
+                var visible = slidesOfSet(activeSet, isLg);
+                // 当前组一张都没有（配置被改等异常）：回退主组
+                if (visible.length === 0 && activeSet !== 'main') {
+                    activeSet = 'main';
+                    container.setAttribute('data-active-set', 'main');
+                    visible = slidesOfSet('main', isLg);
                 }
                 if (visible.length === 0) {
+                    var all = container.querySelectorAll('.slide-item');
                     for (var j = 0; j < all.length; j++) visible.push(all[j]);
                 }
                 return visible;
@@ -410,7 +682,67 @@ const wallpaperPosition = state.isFullscreenMode
                 }
             });
 
-            // 随机首张：只有被抽中的这一张会真的下载，其余仍留在 <template> 里
+            // 壁纸风格切换（田园 ↔ 流萤）：旧组退场、新组随机一张进场，轮播无缝续上
+            function switchWallpaperSet(next) {
+                if (next === activeSet) return;
+                var oldVisible = getVisibleSlides();
+                var all = container.querySelectorAll('.slide-item');
+                var i;
+                for (i = 0; i < all.length; i++) all[i].classList.remove('prev-waiting');
+                activeSet = next;
+                container.setAttribute('data-active-set', next);
+                stopAutoPlay();
+                var slides = getVisibleSlides();
+                if (slides.length === 0) {
+                    // 新组一张都没渲染（异常）：还原风格并止损
+                    activeSet = oldVisible.length
+                        ? (oldVisible[0].getAttribute('data-wallpaper-set') || 'main')
+                        : 'main';
+                    container.setAttribute('data-active-set', activeSet);
+                    return;
+                }
+                var idx = Math.floor(Math.random() * slides.length);
+                var target = slides[idx];
+                materialize(target, false);
+                materializeAhead(slides, idx);
+                target.classList.add('active');
+                if (effect === 'kenburns') {
+                    requestAnimationFrame(function () {
+                        for (var j = 0; j < oldVisible.length; j++) oldVisible[j].classList.remove('active');
+                    });
+                } else {
+                    for (var k = 0; k < oldVisible.length; k++) oldVisible[k].classList.remove('active');
+                }
+                if (isCarouselEnabled()) startAutoPlay();
+            }
+
+            window.addEventListener('wallpaperSetChange', function (e) {
+                if (e.detail && (e.detail.set === 'main' || e.detail.set === 'alt')) switchWallpaperSet(e.detail.set);
+            });
+
+            // 主题切换（批七）：把所有已实例化的配对 slide 直接换到新主题那一版。
+            // 还躺在模板里的配对不用管——之后被 materialize 时自然取当前主题版。
+            // 手动点切换按钮只改 documentElement 的 class、不派发 theme-change
+            // （只有跟随系统变化才派发），所以再挂 MutationObserver 兜底，
+            // 与 WavesEffect 的做法一致
+            function swapPairedSlidesToCurrentTheme() {
+                var paired = container.querySelectorAll('.slide-item[data-current-variant]');
+                for (var i = 0; i < paired.length; i++) {
+                    var tpl = paired[i].querySelector('template');
+                    if (tpl) materializePair(paired[i], tpl, false);
+                }
+            }
+            window.addEventListener('theme-change', swapPairedSlidesToCurrentTheme);
+            var wallpaperThemeObserver = new MutationObserver(swapPairedSlidesToCurrentTheme);
+            wallpaperThemeObserver.observe(document.documentElement, {
+                attributes: true,
+                attributeFilter: ['class', 'data-theme', 'style'],
+            });
+
+            // 随机首张：只有被抽中的这一张会真的下载，其余仍留在 <template> 里。
+            // SSR 给两组的首张都挂了 active（都在 <template> 里不显示），先全部清掉再抽
+            var allSlideItems = container.querySelectorAll('.slide-item');
+            for (var q = 0; q < allSlideItems.length; q++) allSlideItems[q].classList.remove('active');
             var slides = getVisibleSlides();
             var startIdx = slides.length > 1 ? Math.floor(Math.random() * slides.length) : 0;
             var firstSlide = slides[startIdx];

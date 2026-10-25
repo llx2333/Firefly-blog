@@ -14,12 +14,13 @@ import type {
 	WALLPAPER_MODE,
 } from "@/types/config";
 import {
+	ambientEffectsConfig,
 	backgroundWallpaper,
 	displaySettingsConfig,
 	expressiveCodeConfig,
-	sakuraConfig,
 	siteConfig,
 } from "../config";
+import type { AmbientEffectId } from "@/types/effectsConfig";
 import { isHomePage as checkIsHomePage } from "./layout-utils";
 
 // Declare global functions
@@ -498,6 +499,39 @@ export function getStoredWallpaperMode(): WALLPAPER_MODE {
 	);
 }
 
+// 壁纸风格（主组 src / 备用组 altSrc，批四）：存取与切换事件
+export type WALLPAPER_SET = "main" | "alt";
+
+export function getStoredWallpaperSet(): WALLPAPER_SET {
+	if (
+		typeof localStorage === "undefined" ||
+		typeof localStorage.getItem !== "function"
+	) {
+		return "main";
+	}
+	const isSwitchable = displaySettingsConfig.wallpaperSetSwitchable;
+	if (!isSwitchable) {
+		localStorage.removeItem("wallpaperSet");
+		return "main";
+	}
+	return localStorage.getItem("wallpaperSet") === "alt" ? "alt" : "main";
+}
+
+export function setWallpaperSet(set: WALLPAPER_SET): void {
+	if (
+		typeof localStorage === "undefined" ||
+		typeof localStorage.setItem !== "function"
+	) {
+		return;
+	}
+	if (!displaySettingsConfig.wallpaperSetSwitchable) return;
+	localStorage.setItem("wallpaperSet", set);
+	// 壁纸区脚本（WallpaperSection）监听此事件切换 slide 组
+	window.dispatchEvent(
+		new CustomEvent("wallpaperSetChange", { detail: { set } }),
+	);
+}
+
 // Overlay settings functions
 function clampNumber(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
@@ -760,35 +794,69 @@ export function applyGradientEnabledToDocument(enabled: boolean): void {
 	}
 }
 
-// Sakura effect functions
-export function getDefaultSakuraEnabled(): boolean {
-	return sakuraConfig?.enable ?? false;
+// Ambient effects functions（自定义氛围特效：落叶/萤火虫/光斑/轻花瓣/风絮）
+export function getDefaultAmbientEffects(): Record<AmbientEffectId, boolean> {
+	const result = {} as Record<AmbientEffectId, boolean>;
+	for (const id of Object.keys(ambientEffectsConfig) as AmbientEffectId[]) {
+		result[id] = ambientEffectsConfig[id].enable;
+	}
+	return result;
 }
 
-export function getStoredSakuraEnabled(): boolean {
+export function getStoredAmbientEffects(): Record<AmbientEffectId, boolean> {
+	const defaults = getDefaultAmbientEffects();
 	if (typeof localStorage === "undefined") {
-		return getDefaultSakuraEnabled();
+		return defaults;
 	}
-	const stored = localStorage.getItem("sakuraEnabled");
-	if (stored === null) {
-		return getDefaultSakuraEnabled();
+	try {
+		const stored = localStorage.getItem("ambientEffects");
+		if (!stored) {
+			return defaults;
+		}
+		const parsed = JSON.parse(stored) as Record<string, unknown>;
+		for (const id of Object.keys(defaults) as AmbientEffectId[]) {
+			if (typeof parsed[id] === "boolean") {
+				defaults[id] = parsed[id];
+			}
+		}
+	} catch {
+		// 解析失败回退默认值
 	}
-	return stored === "true";
+	return defaults;
 }
 
-export function setSakuraEnabled(enabled: boolean): void {
+export function setAmbientEffectEnabled(
+	id: AmbientEffectId,
+	enabled: boolean,
+): void {
 	if (
 		typeof localStorage === "undefined" ||
 		typeof localStorage.setItem !== "function"
 	) {
 		return;
 	}
-	localStorage.setItem("sakuraEnabled", String(enabled));
-	document.documentElement.setAttribute("data-sakura-enabled", String(enabled));
-	// 实时切换樱花特效
-	window.dispatchEvent(
-		new CustomEvent("sakuraToggle", { detail: { enabled } }),
+	const current = getStoredAmbientEffects();
+	current[id] = enabled;
+	localStorage.setItem("ambientEffects", JSON.stringify(current));
+	document.documentElement.setAttribute(
+		"data-ambient-effects",
+		JSON.stringify(current),
 	);
+	// 实时切换对应特效
+	window.dispatchEvent(
+		new CustomEvent("ambientEffectsToggle", { detail: { id, enabled } }),
+	);
+}
+
+export function resetAmbientEffects(): void {
+	const defaults = getDefaultAmbientEffects();
+	const stored = getStoredAmbientEffects();
+	for (const id of Object.keys(defaults) as AmbientEffectId[]) {
+		// 只对与默认值不同的项派发事件，避免无谓的重启
+		if (stored[id] !== defaults[id]) {
+			setAmbientEffectEnabled(id, defaults[id]);
+		}
+	}
 }
 
 // Banner title functions

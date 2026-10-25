@@ -4,6 +4,7 @@ import {
 	type NavBarSearchConfig,
 	NavBarSearchMethod,
 } from "../types/navBarConfig";
+import { profileConfig } from "./profileConfig";
 
 // ============================================================================
 // 导航栏配置 - 根据顺序动态生成导航栏链接
@@ -68,17 +69,12 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 			// 书签导航
 			LinkPresets.Booknav,
 
-			// 哔哩哔哩追番
-			LinkPresets.Bilibili,
-
-			// 番组计划
-			LinkPresets.Bangumi,
-
-			// VNDB
-			LinkPresets.VNDB,
-
-			// MyAnimeList
-			LinkPresets.MAL,
+			// 追番四件套批二下架（B站追番页/番组计划/VNDB/MyAnimeList）
+			// 想恢复哪项就把对应的 LinkPresets.Xxx 放回来
+			// LinkPresets.Bilibili,
+			// LinkPresets.Bangumi,
+			// LinkPresets.VNDB,
+			// LinkPresets.MAL,
 		],
 	});
 
@@ -88,8 +84,8 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 		url: "#",
 		icon: "material-symbols:info",
 		children: [
-			// 打赏
-			LinkPresets.Sponsor,
+			// 打赏页批二下架（收款位原来指向主题作者）；有自己的收款码后把下面一行放回来
+			// LinkPresets.Sponsor,
 
 			// 关于页面
 			LinkPresets.About,
@@ -101,32 +97,15 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 		name: "链接",
 		url: "#",
 		icon: "material-symbols:link",
-		// 子菜单
-		children: [
-			{
-				name: "GitHub",
-				url: "https://github.com/llx2333",
-				external: true,
-				icon: "fa7-brands:github",
-			},
-			{
-				name: "Gitee",
-				url: "https://gitee.com/llx2333",
-				external: true,
-				icon: "fa7-brands:gitee",
-			},
-			{
-				name: "Email",
-				icon: "fa7-solid:envelope",
-				url: "mailto:ignoramusm@qq.com",
-			},
-			// {
-			// 	name: "Firefly文档",
-			// 	url: "https://docs-firefly.cuteleaf.cn",
-			// 	external: true,
-			// 	icon: "material-symbols:docs",
-			// },
-		],
+		// 子菜单：与首页横幅图标、侧栏身份卡共用 profileConfig.links（单一数据源）——
+		// 加/改社交入口只需改 profileConfig.ts 的 links 数组，三处自动同步；
+		// external 按 url 是否 http 自动判断
+		children: profileConfig.links.map((s) => ({
+			name: s.name,
+			url: s.url,
+			icon: s.icon,
+			external: s.url.startsWith("http"),
+		})),
 	});
 
 	// 文档链接
