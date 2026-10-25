@@ -1,0 +1,77 @@
+# Sveltia CMS 配置 — 文章后台（现场编辑保存）
+# 在 /admin/ 页面写文章，保存 = 自动 commit+push 到 GitHub → 现有部署链自动上线
+# 登录：GitHub Fine-grained 令牌（只授权本仓库 Contents 读写），登录页选「使用令牌登录」
+
+backend:
+  name: github
+  repo: llx2333/Firefly-blog
+  branch: master
+
+site_url: https://blog.adoai.me
+
+# 上传的图片落在 public/assets/images/posts/，引用一律写 /assets/images/posts/xxx 绝对路径：
+# 封面与正文通吃，不受文章所在子目录层级影响（主题 CoverImage 支持以 / 开头的 public 路径）
+media_folder: public/assets/images/posts
+public_folder: /assets/images/posts
+
+# 空的可选字段不写入 frontmatter（避免空串日期之类坑坏 Astro Zod 校验）
+output:
+  omit_empty_optional_fields: true
+
+collections:
+  - name: posts
+    label: 文章
+    label_singular: 文章
+    folder: src/content/posts
+    create: true
+    format: yaml-frontmatter
+    # 嵌套子目录：nvim/、demo/ 里的文章也能列出编辑；
+    # subfolders:false = 文章是目录里的普通 .md 文件（本仓库惯例），新文章不套 index.md
+    nested:
+      depth: 10
+      subfolders: false
+    slug:
+      template: "{{title}}"
+      editable: true
+    sortable_fields:
+      - published
+      - title
+      - updated
+    summary: "{{title}} · {{published}}"
+    fields:
+      - { label: 标题, name: title, widget: string }
+      - {
+          label: 发布日期,
+          name: published,
+          widget: datetime,
+          format: YYYY-MM-DD,
+          date_format: YYYY-MM-DD,
+          time_format: false,
+          # 不设 default: now —— Sveltia 保存时会把未触碰字段的 now 字面量写进
+          # frontmatter（实测 published: now），Astro z.date() 会构建失败；
+          # 必填 + 手动点「今天」反而安全
+        }
+      - {
+          label: 更新日期,
+          name: updated,
+          widget: datetime,
+          required: false,
+          format: YYYY-MM-DD,
+          date_format: YYYY-MM-DD,
+          time_format: false,
+        }
+      - { label: 草稿, name: draft, widget: boolean, required: false, default: false }
+      - { label: 摘要, name: description, widget: text, required: false }
+      - { label: 封面图, name: image, widget: image, required: false }
+      - label: URL 别名
+        name: slug
+        widget: string
+        required: false
+        hint: 文章网址用这个名字（建议拼音或英文，如 my-first-post），留空则用文件名
+      - { label: 标签, name: tags, widget: list, required: false }
+      - { label: 分类, name: category, widget: string, required: false }
+      - { label: 置顶, name: pinned, widget: boolean, required: false, default: false }
+      - { label: 作者, name: author, widget: string, required: false }
+      - { label: 系列, name: series, widget: string, required: false }
+      - { label: 系列序号, name: seriesOrder, widget: number, required: false }
+      - { label: 正文, name: body, widget: markdown }
