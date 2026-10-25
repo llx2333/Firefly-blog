@@ -1,22 +1,138 @@
 ---
-// Sveltia CMS 入口页。
-// 必须做成 astro 路由而不是 public/admin/index.html：astro dev 服务器对 public 目录
-// 不做「目录 → index.html」解析，本地访问 /admin/ 会落到主题 404（静态托管环境没这个问题）。
-// 配套的 config.yml 与 sveltia-cms.js 仍留在 public/admin/。脚本必须用绝对路径：
-// 相对路径 ./sveltia-cms.js 在无尾斜杠的 /admin 下会被浏览器解析成 /sveltia-cms.js（404 → 全白页面）。
+// /admin 管理认证页：只负责登录（GitHub PAT 验证），不做任何内容编辑。
+// 页面用站点自身主题（MainGridLayout，与首页同款导航栏 / 壁纸 / 卡片风格），
+// 登录成功写入 write-editor-token 后自动跳回 ?redirect= 指定的站内页面
+// （无参数时按来源页回跳，都没有则回首页）。内容编辑全部在博客内完成：
+// 导航栏「写文章」铅笔图标 / 文章页「编辑」按钮 / /write 写作中心。
+// token 已验证有效时进页即无缝跳回，不停留。
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+
+const title = "管理认证";
+const description = "登录后回到博客直接写作与编辑";
 ---
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="robots" content="noindex" />
-    <title>内容管理 · 自留地</title>
-    <!-- Sveltia CMS（@sveltia/cms@0.252.0）。脚本本地化存放不走 CDN，保证大陆直连可用；
-         升级时从 https://cdn.jsdelivr.net/npm/@sveltia/cms@<新版本>/dist/sveltia-cms.js 重新下载并更新本注释版本号 -->
-    <script is:inline src="/admin/sveltia-cms.js"></script>
-  </head>
-  <body>
-    <!-- Sveltia 自行渲染整页后台 UI -->
-  </body>
-</html>
+
+<MainGridLayout title={title} description={description}>
+  <meta slot="head" name="robots" content="noindex" />
+  <div class="w-full flex justify-center py-2">
+    <div
+      class="card-base px-6 md:px-9 py-8 rounded-(--radius-large) max-w-xl w-full"
+      id="admin-auth-card"
+    >
+      <div class="text-3xl font-bold text-90 mb-3">管理认证</div>
+      <p class="text-sm text-50 leading-relaxed mb-6">
+        这里只做登录，不再进入后台编辑。验证通过后会自动跳回你刚才浏览的页面，
+        用导航栏的「写文章」铅笔图标、文章页的「编辑」按钮或
+        <a href="/write/" class="text-(--primary) hover:underline">/write 写作中心</a>
+        直接在博客里写作与修改。token 需要仓库 Contents 读写权限
+        （Fine-grained 勾选本仓库的 Contents: Read and write，或 Classic 勾选 repo 范围）。
+      </p>
+      <input
+        id="admin-token-input"
+        type="password"
+        class="w-full px-3 py-2 text-sm bg-transparent border border-black/10 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-(--primary) focus:border-(--primary) hover:border-black/20 dark:hover:border-white/20 text-75 placeholder:opacity-50 transition-colors outline-hidden"
+        placeholder="ghp_… / github_pat_…"
+        autocomplete="off"
+      >
+      <p id="admin-auth-status" class="text-sm text-50 mt-3 leading-relaxed hidden"></p>
+      <p id="admin-auth-error" class="text-sm text-(--primary) mt-3 leading-relaxed hidden"></p>
+      <div class="flex flex-wrap gap-3 mt-5">
+        <button
+          type="button"
+          id="admin-login-btn"
+          class="btn-regular rounded-(--radius-large) px-6 h-10 text-sm"
+          disabled
+        >
+          验证并返回
+        </button>
+      </div>
+      <p class="text-xs text-50 mt-6 leading-relaxed">
+        Token 仅保存在本浏览器的 localStorage，只发送给 GitHub API；登录状态 6 小时内免重复验证。
+      </p>
+    </div>
+  </div>
+</MainGridLayout>
+
+<script>
+  import { describeGitHubError, fetchCurrentUser } from "@/utils/write/github";
+  import { ensureVerified, markVerified } from "@/utils/write/auth";
+  import { persistToken, readStoredToken } from "@/utils/write/session";
+
+  const input = document.getElementById("admin-token-input") as HTMLInputElement;
+  const btn = document.getElementById("admin-login-btn") as HTMLButtonElement;
+  const statusEl = document.getElementById("admin-auth-status") as HTMLParagraphElement;
+  const errorEl = document.getElementById("admin-auth-error") as HTMLParagraphElement;
+
+  /** 只允许站内路径：/开头、非 //、无协议；否则回退来源页（同源时）或首页 */
+  function resolveTarget(): string {
+    const raw = new URLSearchParams(location.search).get("redirect");
+    if (
+      raw &&
+      raw.startsWith("/") &&
+      !raw.startsWith("//") &&
+      !raw.startsWith("/\\") &&
+      !raw.includes("://")
+    ) {
+      return raw;
+    }
+    try {
+      if (document.referrer) {
+        const ref = new URL(document.referrer);
+        if (ref.origin === location.origin) return ref.pathname + ref.search + ref.hash;
+      }
+    } catch {
+      // referrer 解析失败，走默认首页
+    }
+    return "/";
+  }
+
+  const target = resolveTarget();
+
+  function show(el: HTMLParagraphElement, text: string): void {
+    el.textContent = text;
+    el.classList.remove("hidden");
+  }
+
+  async function bounce(message: string): Promise<void> {
+    show(statusEl, message);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    location.href = target;
+  }
+
+  // 已有有效登录态：无缝跳回，不停留
+  void (async () => {
+    const existing = readStoredToken();
+    if (existing && (await ensureVerified(existing))) {
+      input.disabled = true;
+      btn.disabled = true;
+      void bounce("已登录，正在返回……");
+    }
+  })();
+
+  input.addEventListener("input", () => {
+    btn.disabled = input.value.trim() === "";
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && input.value.trim() !== "") void handleLogin();
+  });
+
+  async function handleLogin(): Promise<void> {
+    const value = input.value.trim();
+    if (!value || btn.disabled) return;
+    btn.disabled = true;
+    errorEl.classList.add("hidden");
+    show(statusEl, "验证中……");
+    try {
+      await fetchCurrentUser(value);
+      persistToken(value);
+      markVerified(value);
+      input.value = "";
+      void bounce("登录成功，正在返回……");
+    } catch (error) {
+      statusEl.classList.add("hidden");
+      show(errorEl, describeGitHubError(error));
+      btn.disabled = false;
+    }
+  }
+
+  btn.addEventListener("click", () => void handleLogin());
+</script>
