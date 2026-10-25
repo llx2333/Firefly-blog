@@ -242,6 +242,10 @@ export default defineConfig({
 				// 根据页面开关配置过滤sitemap
 				const url = new URL(page);
 				const pathname = url.pathname;
+				// Sveltia 后台入口页带 noindex，也不应出现在 sitemap
+				if (pathname === "/admin/") {
+					return false;
+				}
 				if (pathname === "/dynamic/" && !siteConfig.pages.dynamic) {
 					return false;
 				}
