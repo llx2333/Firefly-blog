@@ -72,11 +72,11 @@ import { Icon } from "astro-icon/components";
     const copyLabel = emailDialog.querySelector("[data-email-copy-label]");
     let currentEmail = "";
 
-    const setCopyLabel = (text) => {
+    const setCopyLabel = (text: string) => {
       if (copyLabel) copyLabel.textContent = text;
     };
 
-    const openDialog = (trigger) => {
+    const openDialog = (trigger: Element) => {
       const encoded = trigger.getAttribute("data-email") ?? "";
       try {
         currentEmail = atob(encoded);
