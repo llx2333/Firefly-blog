@@ -24,6 +24,7 @@ export type GitHubErrorKind =
 	| "not-found" // 404
 	| "conflict" // 409：远端已变
 	| "network" // fetch 抛错（断网 / DNS）
+	| "timeout" // 连接超时（请求被主动中止，网络不通时的快速失败路径）
 	| "server"; // 其余非 2xx
 
 export class GitHubError extends Error {
@@ -54,6 +55,8 @@ export function describeGitHubError(error: unknown): string {
 				return "远端文件已被修改（409），请「重载远端」后再保存";
 			case "network":
 				return "网络错误：无法连接 GitHub API，请检查网络后重试";
+			case "timeout":
+				return "连接 GitHub API 超时：请检查网络或代理后重试";
 			case "server":
 				return `GitHub API 错误（HTTP ${error.status}）：${error.message}`;
 		}
@@ -82,6 +85,7 @@ async function ghFetch(
 	token: string,
 	path: string,
 	init: RequestInit = {},
+	timeoutMs?: number,
 ): Promise<Response> {
 	const headers: Record<string, string> = {
 		Accept: "application/vnd.github+json",
@@ -94,11 +98,26 @@ async function ghFetch(
 	}
 
 	let response: Response;
+	// 超时中止由调用方按接口性质选择：认证验证必须快速失败（网络不通时
+	// 裸 fetch 会永久挂起，/write 与 /admin 都因此卡死过），内容读写不设限
+	const controller = timeoutMs ? new AbortController() : undefined;
+	const timer = controller
+		? setTimeout(() => controller.abort(), timeoutMs)
+		: undefined;
 	try {
-		response = await fetch(`${API_ROOT}${path}`, { ...init, headers });
-	} catch {
-		// fetch 网络层失败（断网 / DNS / 中断）；不携带任何请求细节，避免泄露 token
+		response = await fetch(`${API_ROOT}${path}`, {
+			...init,
+			headers,
+			...(controller ? { signal: controller.signal } : {}),
+		});
+	} catch (error) {
+		// fetch 网络层失败（断网 / DNS / 中止 / 超时）；不携带任何请求细节，避免泄露 token
+		if (error instanceof DOMException && error.name === "AbortError") {
+			throw new GitHubError("timeout", 0, "连接超时");
+		}
 		throw new GitHubError("network", 0, "网络请求失败");
+	} finally {
+		if (timer) clearTimeout(timer);
 	}
 
 	if (!response.ok) {
@@ -155,11 +174,14 @@ export interface ContentsFile extends ContentsEntry {
 
 // ---------- API 封装 ----------
 
+/** 认证验证专用超时：/admin 登录与 /write 恢复登录态都走这里，必须快速失败 */
+const VERIFY_TIMEOUT_MS = 10_000;
+
 /** 验证 token：GET /user */
 export async function fetchCurrentUser(
 	token: string,
 ): Promise<{ login: string }> {
-	const res = await ghFetch(token, "/user");
+	const res = await ghFetch(token, "/user", {}, VERIFY_TIMEOUT_MS);
 	return (await res.json()) as { login: string };
 }
 

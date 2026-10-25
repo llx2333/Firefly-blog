@@ -20,11 +20,7 @@ const description = "登录后回到博客直接写作与编辑";
     >
       <div class="text-3xl font-bold text-90 mb-3">管理认证</div>
       <p class="text-sm text-50 leading-relaxed mb-6">
-        这里只做登录，不再进入后台编辑。验证通过后会自动跳回你刚才浏览的页面，
-        用导航栏的「写文章」铅笔图标、文章页的「编辑」按钮或
-        <a href="/write/" class="text-(--primary) hover:underline">/write 写作中心</a>
-        直接在博客里写作与修改。token 需要仓库 Contents 读写权限
-        （Fine-grained 勾选本仓库的 Contents: Read and write，或 Classic 勾选 repo 范围）。
+        输入 GitHub Token 验证身份，通过后自动返回原页面。
       </p>
       <input
         id="admin-token-input"
@@ -46,7 +42,8 @@ const description = "登录后回到博客直接写作与编辑";
         </button>
       </div>
       <p class="text-xs text-50 mt-6 leading-relaxed">
-        Token 仅保存在本浏览器的 localStorage，只发送给 GitHub API；登录状态 6 小时内免重复验证。
+        Token 需具备本仓库 Contents 读写权限；仅保存在本浏览器 localStorage，
+        只发送给 GitHub API，6 小时内免重复验证。
       </p>
     </div>
   </div>
