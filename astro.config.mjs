@@ -73,7 +73,7 @@ export default defineConfig({
 	site: siteUrl,
 
 	base: basePath,
-	trailingSlash: "always",
+	trailingSlash: "ignore",
 
 	// 字体配置 - 只加载实际使用的字体，跳过未引用的以加快构建
 	fonts: (() => {
