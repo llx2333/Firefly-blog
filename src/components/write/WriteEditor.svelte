@@ -24,9 +24,9 @@ import {
 	POSTS_DIR,
 	putFile,
 	putImageBase64,
-	TOKEN_STORAGE_KEY,
 	WRITE_REPO,
 } from "@/utils/write/github";
+import { persistToken, readStoredToken } from "@/utils/write/session";
 import {
 	fileNameToSlug,
 	timestampPrefix,
@@ -178,22 +178,9 @@ function showToast(text: string) {
 	}, 4000);
 }
 
-function readStoredToken(): string {
-	try {
-		return localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
-	} catch {
-		return "";
-	}
-}
-
 function storeToken(value: string) {
 	token = value;
-	try {
-		if (value) localStorage.setItem(TOKEN_STORAGE_KEY, value);
-		else localStorage.removeItem(TOKEN_STORAGE_KEY);
-	} catch {
-		// 隐私模式下 localStorage 不可用：仅本次会话内保持登录
-	}
+	persistToken(value);
 }
 
 /** 401 或手动登出：清 token、回登录卡 */
@@ -214,6 +201,10 @@ onMount(() => {
 	fetchCurrentUser(saved)
 		.then((user) => {
 			userLogin = user.login;
+			if (wantsNewPost()) {
+				newPost();
+				return;
+			}
 			view = "list";
 			void loadList();
 		})
@@ -235,6 +226,11 @@ onMount(() => {
 
 // --- 登录 / 列表 ---
 
+/** URL 带 ?new=1：登录后跳过列表直接进新文章（首页「写文章」入口的目标） */
+function wantsNewPost() {
+	return new URLSearchParams(window.location.search).has("new");
+}
+
 async function handleLogin() {
 	const value = tokenInput.trim();
 	if (!value || loginBusy) return;
@@ -245,6 +241,10 @@ async function handleLogin() {
 		storeToken(value);
 		userLogin = user.login;
 		tokenInput = "";
+		if (wantsNewPost()) {
+			newPost();
+			return;
+		}
 		view = "list";
 		await loadList();
 	} catch (error) {

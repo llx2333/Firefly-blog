@@ -28,6 +28,7 @@ import PostMetadata from "@/components/layout/PostMeta.astro";
 import RecommendedPost from "@/components/misc/RecommendedPost.astro";
 import SeriesNav from "@/components/misc/SeriesNav.astro";
 import SharePoster from "@/components/misc/SharePoster.svelte";
+import PostEditor from "@/components/write/PostEditor.svelte";
 import { coverImageConfig } from "@/config/coverImageConfig";
 import { licenseConfig } from "@/config/licenseConfig";
 import { profileConfig } from "@/config/profileConfig";
@@ -66,6 +67,13 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content, headings } = await render(entry);
+
+// 内容层 entry.id 不带扩展名，GitHub 端文件名必须有 → 从 filePath 截取（兜底 .md）
+const postFileName =
+	(entry.filePath ?? "").replace(
+		/^(?:.*[\\/])?src[\\/]+content[\\/]+posts[\\/]+/,
+		"",
+	) || `${entry.id.replace(/^\//, "")}.md`;
 
 const { remarkPluginFrontmatter } = await render(entry);
 
@@ -251,6 +259,11 @@ const seriesData = await getSeriesPosts(entry);
         {},
       ]}
     >
+      <PostEditor
+        client:load
+        fileName={postFileName}
+        initialTitle={entry.data.title}
+      />
       {
         usePostCoverOverlay && processedImage && (
           <div class="-mx-6 md:-mx-9 -mt-6 mb-6 h-48 md:h-64 relative onload-animation">
@@ -611,6 +624,8 @@ const seriesData = await getSeriesPosts(entry);
     </div>
   </div>
 
+  <!-- 文章卡片之外的附加区：原位编辑时整体隐藏 -->
+  <div id="post-extras">
   <!-- 上次编辑时间 -->
   {
     siteConfig.post.showLastModified && (() => {
@@ -731,4 +746,5 @@ const seriesData = await getSeriesPosts(entry);
 
   <!-- 评论 -->
   {entry.data.comment && !entry.data.password && <Comment post={entry} />}
+  </div>
 </MainGridLayout>
