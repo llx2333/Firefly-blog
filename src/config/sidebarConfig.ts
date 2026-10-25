@@ -33,9 +33,7 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 	// showOnPostPage 是否在文章详情页显示该组件
 	// hideOnNonPostPage 是否在非文章详情页隐藏该组件（true=仅文章详情页显示）
 	// specificConfig 组件专属配置
-	leftComponents: [
-
-	],
+	leftComponents: [],
 
 	// 右侧边栏组件配置列表
 	rightComponents: [

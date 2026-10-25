@@ -91,9 +91,18 @@ export const fontsList: FontDefinition[] = [
 		options: {
 			variants: [
 				// 几个字重文件就配几个 variant，weight 字段对应标注
-				{ src: ["./public/assets/fonts/LXGWWenKaiMono-Light.ttf"], weight: "300" },
-				{ src: ["./public/assets/fonts/LXGWWenKaiMono-Regular.ttf"], weight: "400" },
-				{ src: ["./public/assets/fonts/LXGWWenKaiMono-Medium.ttf"], weight: "500" },
+				{
+					src: ["./public/assets/fonts/LXGWWenKaiMono-Light.ttf"],
+					weight: "300",
+				},
+				{
+					src: ["./public/assets/fonts/LXGWWenKaiMono-Regular.ttf"],
+					weight: "400",
+				},
+				{
+					src: ["./public/assets/fonts/LXGWWenKaiMono-Medium.ttf"],
+					weight: "500",
+				},
 			],
 		},
 	},

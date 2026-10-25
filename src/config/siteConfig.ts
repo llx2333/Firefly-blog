@@ -55,14 +55,7 @@ export const siteConfig: SiteConfig = {
 		"llx2333 的自留地。技术踩坑、随笔和废话都种一点，长成什么样随缘。",
 
 	// 站点关键词
-	keywords: [
-		"自留地",
-		"llx2333",
-		"Rust",
-		"Neovim",
-		"Linux",
-		"AI",
-	],
+	keywords: ["自留地", "llx2333", "Rust", "Neovim", "Linux", "AI"],
 
 	// 主题色
 	themeColor: {
