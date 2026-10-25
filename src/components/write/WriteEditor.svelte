@@ -333,10 +333,18 @@ async function loadList() {
 const NEW_SEED_KEY = "write-editor-new-seed";
 
 interface NewPostSeed {
-	title?: string;
-	category?: string;
-	tags?: string[];
-	description?: string;
+	title: string;
+	published: string;
+	category: string;
+	tags: string[];
+	description: string;
+	slug: string;
+	image: string;
+	author: string;
+	series: string;
+	seriesOrder: number | null;
+	pinned: boolean;
+	draft: boolean;
 }
 
 function readNewPostSeed(): NewPostSeed | null {
@@ -345,8 +353,17 @@ function readNewPostSeed(): NewPostSeed | null {
 		if (!raw) return null;
 		const parsed = JSON.parse(raw) as NewPostSeed;
 		if (!parsed || typeof parsed !== "object") return null;
+		const published =
+			typeof parsed.published === "string" ? parsed.published.trim() : "";
+		const seriesOrder =
+			typeof parsed.seriesOrder === "number" &&
+			Number.isFinite(parsed.seriesOrder)
+				? parsed.seriesOrder
+				: null;
 		return {
 			title: typeof parsed.title === "string" ? parsed.title.trim() : "",
+			// 非 YYYY-MM-DD 的日期不可信，交回编辑器兜底（同样是今天）
+			published: /^\d{4}-\d{2}-\d{2}$/.test(published) ? published : "",
 			category:
 				typeof parsed.category === "string" ? parsed.category.trim() : "",
 			tags: Array.isArray(parsed.tags)
@@ -358,6 +375,13 @@ function readNewPostSeed(): NewPostSeed | null {
 				: [],
 			description:
 				typeof parsed.description === "string" ? parsed.description.trim() : "",
+			slug: typeof parsed.slug === "string" ? parsed.slug.trim() : "",
+			image: typeof parsed.image === "string" ? parsed.image.trim() : "",
+			author: typeof parsed.author === "string" ? parsed.author.trim() : "",
+			series: typeof parsed.series === "string" ? parsed.series.trim() : "",
+			seriesOrder,
+			pinned: parsed.pinned === true,
+			draft: parsed.draft === true,
 		};
 	} catch {
 		return null;
@@ -372,7 +396,7 @@ function newPost() {
 	}
 	fm = emptyFrontmatter(true);
 	fm.published = todayDateString();
-	// 弹窗种子：标题/分类/标签/摘要预填进 frontmatter，正文置空（非示例正文）；
+	// 弹窗种子：frontmatter 各字段预填进文章信息，正文置空（非示例正文）；
 	// 有标题时立即联动生成文件名与 slug（onTitleBlur 对新建流程幂等）
 	const seed = readNewPostSeed();
 	if (seed) {
@@ -381,11 +405,22 @@ function newPost() {
 		} catch {
 			/* 忽略 */
 		}
+		// 弹窗的草稿勾选是显式意图，覆盖「新建默认草稿」的安全默认（否则弹窗不勾草稿也会存成草稿）
+		fm.draft = seed.draft;
 	}
 	if (seed?.title) fm.title = seed.title;
+	if (seed?.published) fm.published = seed.published;
 	if (seed?.category) fm.category = seed.category;
 	if (seed?.description) fm.description = seed.description;
 	if (seed?.tags?.length) fm.tags = seed.tags;
+	if (seed?.slug) fm.slug = seed.slug;
+	if (seed?.image) fm.image = seed.image;
+	if (seed?.author) fm.author = seed.author;
+	if (seed?.series) fm.series = seed.series;
+	if (seed?.seriesOrder != null) {
+		fm.seriesOrder = seed.seriesOrder;
+	}
+	if (seed?.pinned) fm.pinned = true;
 	body = seed ? "" : SAMPLE_BODY;
 	extras = {};
 	fileName = "";
@@ -394,7 +429,7 @@ function newPost() {
 	loadedPath = null;
 	sha = null;
 	tagsInput = fm.tags.join(", ");
-	seriesOrderInput = "";
+	seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
 	showFrontmatter = true;
 	mobileTab = "edit";
 	editorError = "";
@@ -435,14 +470,17 @@ async function openPost(item: ListItem) {
 
 // --- 编辑器 ---
 
-/** 新建文章：标题失焦且文件名未被手动改过 → 自动建议 YYYY-MM-DD-拼音 slug */
+/**
+ * 新建文章：标题失焦且文件名未被手动改过 → 自动建议 YYYY-MM-DD-slug 文件名；
+ * 后缀优先用弹窗种子带入的 slug，其次按标题转拼音（与 pnpm new-post 规则一致）
+ */
 function onTitleBlur() {
 	if (sha !== null || loadedPath !== null) return;
 	if (fileNameTouched) return;
-	const converted = fileNameToSlug(fm.title.trim());
-	if (!converted) return;
-	fileName = `${todayDateString()}-${converted}`;
-	if (!fm.slug) fm.slug = converted; // slug 不带日期前缀
+	const base = fm.slug.trim() || fileNameToSlug(fm.title.trim());
+	if (!base) return;
+	fileName = `${todayDateString()}-${base}`;
+	if (!fm.slug) fm.slug = base; // slug 不带日期前缀
 }
 
 function setUpdatedNow() {

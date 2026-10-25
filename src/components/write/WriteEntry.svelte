@@ -1,18 +1,30 @@
 <script lang="ts">
 /**
  * 导航栏「写文章」图标入口：token 验证通过后才渲染（访客看不到任何编辑入口）。
- * 点击弹出新建文章悬浮窗：标题 / 分类 / 标签 / 摘要先行填写，
- * 确认后经 sessionStorage 种子交给 /write/?new=1，编辑器内 frontmatter 自动预填。
+ * 点击弹出新建文章悬浮窗：frontmatter 常用字段先行填写——发布日期智能预填今天，
+ * 「更多设置」折叠区提醒 slug / 封面图 / 作者 / 系列 / 置顶 / 草稿等可选字段；
+ * 确认后经 sessionStorage 种子交给 /write/?new=1，编辑器内 frontmatter 自动预填，
+ * 与本地直接编辑一样所有字段进编辑器后仍可手动修改。
  */
 import { tick } from "svelte";
 import { ensureVerified, resolveToken } from "@/utils/write/auth";
+import { todayDateString } from "@/utils/write/slug";
 
 let authed = $state(false);
 let open = $state(false);
 let title = $state("");
+let published = $state(todayDateString());
 let category = $state("");
 let tags = $state("");
 let description = $state("");
+let slug = $state("");
+let image = $state("");
+let author = $state("");
+let series = $state("");
+let seriesOrder = $state("");
+let pinned = $state(false);
+let draft = $state(false);
+let showMore = $state(false);
 let error = $state("");
 let titleInput = $state<HTMLInputElement | null>(null);
 
@@ -48,14 +60,25 @@ function confirmNew() {
 		error = "标题不能为空";
 		return;
 	}
+	const order = Number(seriesOrder);
 	const seed = {
 		title: trimmed,
+		// 非法/留空日期交给编辑器兜底（同样是今天），这里原样传字符串
+		published,
 		category: category.trim(),
 		tags: tags
 			.split(/[,，]/)
 			.map((tag) => tag.trim())
 			.filter(Boolean),
 		description: description.trim(),
+		slug: slug.trim(),
+		image: image.trim(),
+		author: author.trim(),
+		series: series.trim(),
+		seriesOrder:
+			seriesOrder.trim() !== "" && Number.isFinite(order) ? order : null,
+		pinned,
+		draft,
 	};
 	try {
 		sessionStorage.setItem("write-editor-new-seed", JSON.stringify(seed));
@@ -74,9 +97,18 @@ function confirmNew() {
 		title="写文章"
 		onclick={() => {
 			title = "";
+			published = todayDateString();
 			category = "";
 			tags = "";
 			description = "";
+			slug = "";
+			image = "";
+			author = "";
+			series = "";
+			seriesOrder = "";
+			pinned = false;
+			draft = false;
+			showMore = false;
 			error = "";
 			open = true;
 		}}
@@ -103,7 +135,7 @@ function confirmNew() {
 	<!-- body 级 fixed 悬浮窗（表格单元格裁剪教训：浮层一律 fixed + 高 z-index） -->
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
 		<div
-			class="card-base rounded-(--radius-large) w-full px-6 py-6 shadow-xl"
+			class="card-base rounded-(--radius-large) w-full px-6 py-6 shadow-xl max-h-[85vh] overflow-y-auto"
 			style="max-width: 28rem;"
 			role="dialog"
 			aria-modal="true"
@@ -126,6 +158,10 @@ function confirmNew() {
 			</div>
 			<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 mb-3">
 				<div>
+					<label class={labelClass} for="we-seed-published">发布日期</label>
+					<input id="we-seed-published" type="date" class={inputClass} bind:value={published}>
+				</div>
+				<div>
 					<label class={labelClass} for="we-seed-category">分类</label>
 					<input
 						id="we-seed-category"
@@ -135,16 +171,16 @@ function confirmNew() {
 						bind:value={category}
 					>
 				</div>
-				<div>
-					<label class={labelClass} for="we-seed-tags">标签（逗号分隔）</label>
-					<input
-						id="we-seed-tags"
-						type="text"
-						class={inputClass}
-						placeholder="随笔, 技术"
-						bind:value={tags}
-					>
-				</div>
+			</div>
+			<div class="mb-3">
+				<label class={labelClass} for="we-seed-tags">标签（逗号分隔）</label>
+				<input
+					id="we-seed-tags"
+					type="text"
+					class={inputClass}
+					placeholder="随笔, 技术"
+					bind:value={tags}
+				>
 			</div>
 			<div class="mb-4">
 				<label class={labelClass} for="we-seed-description">摘要</label>
@@ -156,6 +192,90 @@ function confirmNew() {
 					bind:value={description}
 				>
 			</div>
+			<button
+				type="button"
+				class="flex items-center gap-1.5 text-xs text-50 hover:text-75 transition-colors mb-3"
+				onclick={() => (showMore = !showMore)}
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+					class="w-3.5 h-3.5 transition-transform {showMore ? 'rotate-180' : ''}"
+				>
+					<path d="m6 9 6 6 6-6"></path>
+				</svg>
+				更多设置（可选）：URL 别名 / 封面图 / 作者 / 系列
+			</button>
+			{#if showMore}
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 mb-4">
+					<div>
+						<label class={labelClass} for="we-seed-slug">URL 别名（slug）</label>
+						<input
+							id="we-seed-slug"
+							type="text"
+							class={inputClass}
+							placeholder="留空按标题自动生成拼音"
+							bind:value={slug}
+						>
+					</div>
+					<div>
+						<label class={labelClass} for="we-seed-image">封面图（image）</label>
+						<input
+							id="we-seed-image"
+							type="text"
+							class={inputClass}
+							placeholder="/assets/images/posts/… 或 URL"
+							bind:value={image}
+						>
+					</div>
+					<div>
+						<label class={labelClass} for="we-seed-author">作者（author）</label>
+						<input
+							id="we-seed-author"
+							type="text"
+							class={inputClass}
+							placeholder="留空使用站点默认"
+							bind:value={author}
+						>
+					</div>
+					<div>
+						<label class={labelClass} for="we-seed-series">系列（series）</label>
+						<input
+							id="we-seed-series"
+							type="text"
+							class={inputClass}
+							placeholder="系列名，非系列文章留空"
+							bind:value={series}
+						>
+					</div>
+					<div>
+						<label class={labelClass} for="we-seed-series-order">系列序号（seriesOrder）</label>
+						<input
+							id="we-seed-series-order"
+							type="number"
+							class={inputClass}
+							placeholder="如 1"
+							bind:value={seriesOrder}
+						>
+					</div>
+					<div class="flex items-center gap-5 sm:justify-end">
+						<label class="flex items-center gap-2 text-sm text-75 cursor-pointer">
+							<input type="checkbox" class="accent-(--primary) w-4 h-4" bind:checked={pinned}>
+							置顶
+						</label>
+						<label class="flex items-center gap-2 text-sm text-75 cursor-pointer">
+							<input type="checkbox" class="accent-(--primary) w-4 h-4" bind:checked={draft}>
+							草稿
+						</label>
+					</div>
+				</div>
+			{/if}
 			{#if error}
 				<p class="text-xs text-(--primary) mb-3">{error}</p>
 			{/if}
@@ -176,7 +296,7 @@ function confirmNew() {
 				</button>
 			</div>
 			<p class="text-xs text-50 mt-4 leading-relaxed">
-				确认后进入编辑器：日期、文件名、slug 等其余字段自动预填，仍可随时修改。
+				发布日期已按今天预填，URL 别名留空会按标题自动生成拼音；确认后进入编辑器，所有字段和正文都还能随时修改。
 			</p>
 		</div>
 	</div>
