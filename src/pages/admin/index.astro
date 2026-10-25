@@ -2,7 +2,8 @@
 // Sveltia CMS 入口页。
 // 必须做成 astro 路由而不是 public/admin/index.html：astro dev 服务器对 public 目录
 // 不做「目录 → index.html」解析，本地访问 /admin/ 会落到主题 404（静态托管环境没这个问题）。
-// 配套的 config.yml 与 sveltia-cms.js 仍留在 public/admin/，加载路径 ./sveltia-cms.js 不变。
+// 配套的 config.yml 与 sveltia-cms.js 仍留在 public/admin/。脚本必须用绝对路径：
+// 相对路径 ./sveltia-cms.js 在无尾斜杠的 /admin 下会被浏览器解析成 /sveltia-cms.js（404 → 全白页面）。
 ---
 <!doctype html>
 <html lang="zh-CN">
@@ -13,7 +14,7 @@
     <title>内容管理 · 自留地</title>
     <!-- Sveltia CMS（@sveltia/cms@0.252.0）。脚本本地化存放不走 CDN，保证大陆直连可用；
          升级时从 https://cdn.jsdelivr.net/npm/@sveltia/cms@<新版本>/dist/sveltia-cms.js 重新下载并更新本注释版本号 -->
-    <script is:inline src="./sveltia-cms.js"></script>
+    <script is:inline src="/admin/sveltia-cms.js"></script>
   </head>
   <body>
     <!-- Sveltia 自行渲染整页后台 UI -->
