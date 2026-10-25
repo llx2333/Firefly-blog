@@ -1,13 +1,26 @@
 <script lang="ts">
 /**
- * /write 写作中心：token 登录 → 文章列表（匿名只读）→ 左编辑右预览 →
- * 保存 / 删除 / 插图直接走 GitHub Contents API 提交到 master，
- * Cloudflare Pages 自动构建上线。全部状态在客户端，无后端。
+ * /write 写作中心：token 登录 → 文章列表（匿名只读）→ 左编辑右预览。
+ * 「暂存草稿」写 write-drafts 分支（[CI Skip]，零构建、线上零影响），「发布」
+ * 才提交 master 触发 Cloudflare Pages 构建；插图随暂存走草稿分支，发布时统一
+ * 搬运回 master。全部状态在客户端，无后端。
  */
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onMount, tick } from "svelte";
 import { clearVerified, markVerified, resolveToken } from "@/utils/write/auth";
+import {
+	DRAFT_BRANCH,
+	deleteDraftFile,
+	draftFileText,
+	ensureDraftsBranch,
+	fetchDraftFile,
+	listDraftDir,
+	probeDraftAgainstMaster,
+	publishPostFile,
+	saveDraftImage,
+	saveDraftPost,
+} from "@/utils/write/drafts";
 import {
 	emptyFrontmatter,
 	type PostFrontmatter,
@@ -23,8 +36,6 @@ import {
 	IMAGE_PUBLIC_PREFIX,
 	listPostFiles,
 	POSTS_DIR,
-	putFile,
-	putImageBase64,
 	WRITE_REPO,
 } from "@/utils/write/github";
 import { persistToken } from "@/utils/write/session";
@@ -148,12 +159,34 @@ let uploadingImage = $state(false);
 let bodyTextarea = $state<HTMLTextAreaElement | null>(null);
 let imageInput = $state<HTMLInputElement | null>(null);
 
+// --- 云端草稿（write-drafts 分支）---
+let draftSha = $state<string | null>(null); // 草稿分支文件版本号（暂存更新 / 丢弃清理用）
+let savingDraft = $state(false);
+let loadingDraft = $state(false);
+let discardingDraft = $state(false);
+let draftBanner = $state<string | null>(null); // 非空 = 有未发布草稿，值为保存时间文案
+/** 草稿分支目录索引（path → 文件名），登录态下拉；含已在 master 的路径（列表徽标用） */
+let draftIndex = $state(new Map<string, string>());
+/** 最近一次持久化（master 或草稿分支）的全文快照，驱动 beforeunload 拦截 */
+let storedSnapshot = $state("");
+
 const isLoggedIn = $derived(userLogin !== null && token !== "");
 const currentPath = $derived(
 	fileName.trim() ? `${POSTS_DIR}/${fileName.trim()}.${fileExt}` : "",
 );
 const filenameChanged = $derived(
 	loadedPath !== null && currentPath !== "" && currentPath !== loadedPath,
+);
+const dirty = $derived(
+	view === "editor" &&
+		!editorLoading &&
+		serializePostFile(fm, extras, body) !== storedSnapshot,
+);
+const draftOnlyItems = $derived(
+	[...draftIndex.entries()]
+		.filter(([path]) => !listItems.some((item) => item.path === path))
+		.map(([path, name]) => ({ path, name }))
+		.sort((a, b) => b.name.localeCompare(a.name)),
 );
 
 const preview = $derived.by(() => {
@@ -178,6 +211,16 @@ function showToast(text: string) {
 		notice = "";
 	}, 4000);
 }
+
+// 编辑中有未持久化的修改时，关页面前给浏览器原生提示（暂存/发布后解除）
+$effect(() => {
+	if (!dirty) return;
+	const handler = (event: BeforeUnloadEvent) => {
+		event.preventDefault();
+	};
+	window.addEventListener("beforeunload", handler);
+	return () => window.removeEventListener("beforeunload", handler);
+});
 
 function storeToken(value: string) {
 	token = value;
@@ -313,6 +356,7 @@ async function loadList() {
 		items.sort((a, b) => b.name.localeCompare(a.name));
 		listItems = items;
 		listLoaded = true;
+		void loadDraftIndex();
 	} catch (error) {
 		listError = describeGitHubError(error);
 		// 401 到达时若正在编辑（保存后触发的后台刷新等），不踢回登录卡清掉编辑现场；
@@ -326,6 +370,23 @@ async function loadList() {
 		}
 	} finally {
 		listLoading = false;
+	}
+}
+
+/** 拉草稿分支目录索引（仅登录态；失败静默，只影响徽标与「云端草稿」分组） */
+async function loadDraftIndex() {
+	if (!isLoggedIn) {
+		draftIndex = new Map();
+		return;
+	}
+	try {
+		const map = new Map<string, string>();
+		for (const entry of await listDraftDir(token, POSTS_DIR)) {
+			if (/\.(md|mdx)$/i.test(entry.name)) map.set(entry.path, entry.name);
+		}
+		draftIndex = map;
+	} catch {
+		/* 草稿索引失败不打扰主列表 */
 	}
 }
 
@@ -434,6 +495,9 @@ function newPost() {
 	mobileTab = "edit";
 	editorError = "";
 	conflictPending = false;
+	draftSha = null;
+	draftBanner = null;
+	storedSnapshot = serializePostFile(fm, extras, body);
 	view = "editor";
 	if (seed?.title) onTitleBlur();
 }
@@ -458,8 +522,65 @@ async function openPost(item: ListItem) {
 		sha = file.sha;
 		tagsInput = fm.tags.join(", ");
 		seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
+		draftSha = null;
+		draftBanner = null;
+		storedSnapshot = serializePostFile(fm, extras, body);
+		// 草稿探测失败静默（probe 内部吞错），不阻塞主编辑流程
+		if (isLoggedIn) void probeDraft(item.path, file.text);
 	} catch (error) {
 		editorError = describeGitHubError(error);
+		if (error instanceof GitHubError && error.kind === "unauthorized") {
+			forceLogout("登录已失效，请重新登录");
+		}
+	} finally {
+		editorLoading = false;
+	}
+}
+
+/** 打开已发布文章后的草稿探测：草稿分支有更新且不同的内容 → 横幅提示 */
+async function probeDraft(path: string, masterText: string) {
+	const probe = await probeDraftAgainstMaster(token, path, masterText);
+	if (!probe) return;
+	if (loadedPath !== path) return; // 探测期间已切到别的文章，丢弃过期结果
+	draftSha = probe.sha;
+	draftBanner = probe.banner || null;
+}
+
+/**
+ * 打开仅存于草稿分支的文章（列表「云端草稿」分组入口）：
+ * master 上还没有这个文件，发布后才会成为正式文章。
+ */
+async function openDraftOnly(path: string) {
+	view = "editor";
+	editorLoading = true;
+	editorError = "";
+	conflictPending = false;
+	showFrontmatter = true;
+	mobileTab = "edit";
+	try {
+		const file = await fetchDraftFile(token, path);
+		if (!file) {
+			throw new GitHubError("not-found", 404, "草稿不存在（可能已被清理）");
+		}
+		const parsed = parsePostFile(draftFileText(file));
+		fm = parsed.frontmatter;
+		body = parsed.body;
+		extras = parsed.extras;
+		const name = path.split("/").pop() ?? path;
+		fileName = name.replace(/\.(md|mdx)$/i, "");
+		fileNameTouched = true;
+		fileExt = /\.mdx$/i.test(name) ? "mdx" : "md";
+		loadedPath = path;
+		sha = null; // master 上还没有：发布即新建
+		draftSha = file.sha;
+		draftBanner = null;
+		tagsInput = fm.tags.join(", ");
+		seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
+		storedSnapshot = serializePostFile(fm, extras, body);
+		showToast("已载入云端草稿：点「发布」后才会成为正式文章");
+	} catch (error) {
+		editorError = describeGitHubError(error);
+		view = "list";
 		if (error instanceof GitHubError && error.kind === "unauthorized") {
 			forceLogout("登录已失效，请重新登录");
 		}
@@ -500,11 +621,121 @@ function validateForSave(): string {
 	return "";
 }
 
+/** 把 tagsInput / seriesOrderInput / slug 兜底同步进 frontmatter（暂存与发布共用） */
+function syncMetaInputs() {
+	fm.tags = tagsInput
+		.split(/[,，]/)
+		.map((tag) => tag.trim())
+		.filter(Boolean);
+	fm.seriesOrder =
+		seriesOrderInput.trim() === "" ? null : Number(seriesOrderInput);
+	if (!fm.slug) {
+		// 文件名带 YYYY-MM-DD- 前缀，slug 不带（与 onTitleBlur 的建议口径一致）
+		const fallback = fileNameToSlug(fileName.trim()).replace(
+			/^\d{4}-\d{2}-\d{2}-/,
+			"",
+		);
+		if (fallback) fm.slug = fallback;
+	}
+}
+
+/** 暂存草稿：写 write-drafts 分支（[CI Skip]），master 不动、线上零构建 */
+async function saveDraft() {
+	editorError = "";
+	if (!isLoggedIn) {
+		editorError = "只读模式：请先登录后再暂存草稿";
+		return;
+	}
+	if (!fileName.trim() || !/^[^/\\]+$/.test(fileName.trim())) {
+		editorError = "暂存前先填好文件名：草稿按文件名存放在 write-drafts 分支";
+		return;
+	}
+	if (savingDraft) return;
+	savingDraft = true;
+	try {
+		syncMetaInputs();
+		const path = currentPath;
+		await ensureDraftsBranch(token);
+		const result = await saveDraftPost(
+			token,
+			path,
+			serializePostFile(fm, extras, body),
+			fm.title.trim() || fileName.trim(),
+		);
+		draftSha = result.sha;
+		draftBanner = null;
+		draftIndex.set(path, `${fileName.trim()}.${fileExt}`);
+		storedSnapshot = serializePostFile(fm, extras, body);
+		showToast(`草稿已暂存到 ${DRAFT_BRANCH} 分支，线上不受影响`);
+	} catch (error) {
+		editorError = describeGitHubError(error);
+		if (error instanceof GitHubError && error.kind === "unauthorized") {
+			forceLogout("登录已失效，请重新登录");
+		}
+	} finally {
+		savingDraft = false;
+	}
+}
+
+/** 载入云端草稿到编辑器（master sha 保留：发布时覆盖已发布版本） */
+async function loadDraftVersion() {
+	if (!loadedPath || loadingDraft) return;
+	loadingDraft = true;
+	editorError = "";
+	try {
+		const file = await fetchDraftFile(token, loadedPath);
+		if (!file) {
+			draftBanner = null;
+			return;
+		}
+		const parsed = parsePostFile(draftFileText(file));
+		fm = parsed.frontmatter;
+		body = parsed.body;
+		extras = parsed.extras;
+		draftSha = file.sha;
+		draftBanner = null;
+		tagsInput = fm.tags.join(", ");
+		seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
+		storedSnapshot = serializePostFile(fm, extras, body);
+		showToast("已载入云端草稿，点「发布」才会更新线上");
+	} catch (error) {
+		editorError = describeGitHubError(error);
+	} finally {
+		loadingDraft = false;
+	}
+}
+
+/** 丢弃云端草稿（只删草稿分支文件，编辑器内容与已发布版本都不动） */
+async function discardDraft() {
+	if (!loadedPath || discardingDraft) return;
+	if (
+		!window.confirm(
+			"确认丢弃这篇的云端草稿？编辑器内容与已发布版本都不受影响。",
+		)
+	) {
+		return;
+	}
+	discardingDraft = true;
+	editorError = "";
+	try {
+		await deleteDraftFile(token, loadedPath);
+		draftSha = null;
+		draftBanner = null;
+		draftIndex.delete(loadedPath);
+		showToast("云端草稿已丢弃");
+	} catch (error) {
+		editorError = describeGitHubError(error);
+	} finally {
+		discardingDraft = false;
+	}
+}
+
+/** 发布：插图先搬 master，再提交正文，最后清理草稿（收尾失败进 warnings） */
 async function save() {
 	editorError = "";
 	conflictPending = false;
 	if (!isLoggedIn) {
-		editorError = "只读模式：请先登录后再保存";
+		editorError = "只读模式：请先登录后再发布";
 		return;
 	}
 	const invalid = validateForSave();
@@ -515,34 +746,28 @@ async function save() {
 	if (saving) return;
 	saving = true;
 	try {
-		fm.tags = tagsInput
-			.split(/[,，]/)
-			.map((tag) => tag.trim())
-			.filter(Boolean);
-		fm.seriesOrder =
-			seriesOrderInput.trim() === "" ? null : Number(seriesOrderInput);
-		if (!fm.slug) {
-			// 文件名带 YYYY-MM-DD- 前缀，slug 不带（与 onTitleBlur 的建议口径一致）
-			const fallback = fileNameToSlug(fileName.trim()).replace(
-				/^\d{4}-\d{2}-\d{2}-/,
-				"",
-			);
-			if (fallback) fm.slug = fallback;
-		}
-
+		syncMetaInputs();
 		const path = currentPath;
 		// 文件名被改过 → 按「另存为新文件」处理，不带旧 sha（旧文件保留）
 		const effectiveSha = filenameChanged ? undefined : (sha ?? undefined);
-		const result = await putFile(
+		const { sha: newSha, warnings } = await publishPostFile(
 			token,
 			path,
 			serializePostFile(fm, extras, body),
-			`write: ${fm.title.trim()}`,
+			fm.title.trim(),
 			effectiveSha,
 		);
-		sha = result.sha;
+		sha = newSha;
 		loadedPath = path;
-		showToast("已提交，Cloudflare 构建约 1-2 分钟后生效");
+		draftSha = null;
+		draftBanner = null;
+		draftIndex.delete(path);
+		storedSnapshot = serializePostFile(fm, extras, body);
+		showToast(
+			warnings.length
+				? `已发布；${warnings.length} 项草稿收尾未完成：${warnings[0]}`
+				: "已发布，Cloudflare 构建约 1-2 分钟后生效",
+		);
 		void loadList();
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -573,6 +798,7 @@ async function reloadRemote() {
 		fileExt = /\.mdx$/i.test(loadedPath) ? "mdx" : "md";
 		tagsInput = fm.tags.join(", ");
 		seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
+		storedSnapshot = serializePostFile(fm, extras, body);
 		showToast("已重载远端最新内容，请基于它修改后再保存");
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -595,6 +821,15 @@ async function removePost() {
 	editorError = "";
 	try {
 		await deleteFile(token, loadedPath, `write: 删除 ${label}`, sha);
+		// 草稿分支残留一并清理（失败不影响删除本体）
+		try {
+			await deleteDraftFile(token, loadedPath);
+		} catch {
+			/* 忽略 */
+		}
+		draftIndex.delete(loadedPath);
+		draftSha = null;
+		draftBanner = null;
 		showToast("已删除，正在返回列表");
 		view = "list";
 		await loadList();
@@ -641,17 +876,14 @@ async function handleImageSelected(event: Event) {
 			.replace(/-+/g, "-")
 			.replace(/^-|-$/g, "");
 		const uploadName = `${timestampPrefix()}-${safeName || "image"}`;
-		await putImageBase64(
-			token,
-			uploadName,
-			base64,
-			`write: 上传图片 ${uploadName}`,
-		);
+		// 插图随暂存走草稿分支：写作中途传图不触发 master 构建，发布时统一搬运
+		await ensureDraftsBranch(token);
+		await saveDraftImage(token, uploadName, base64);
 		const alt = file.name.replace(/[[\]]/g, "");
 		await insertAtCursor(
 			`![${alt}](${IMAGE_PUBLIC_PREFIX}/${encodeURI(uploadName)})`,
 		);
-		showToast("图片已上传并插入正文");
+		showToast("图片已暂存到草稿分支并插入正文（发布时随文章一起上线）");
 	} catch (error) {
 		editorError = describeGitHubError(error);
 		if (error instanceof GitHubError && error.kind === "unauthorized") {
@@ -692,9 +924,10 @@ async function insertAtCursor(text: string) {
 		<div class="card-base px-6 md:px-9 py-8 rounded-(--radius-large) max-w-xl mx-auto w-full">
 			<div class="text-3xl font-bold text-90 mb-3">写作中心</div>
 			<p class="text-sm text-50 leading-relaxed mb-6">
-				输入 GitHub Personal Access Token 登录后，可以直接在博客里写文章：保存即提交到
-				{WRITE_REPO.owner}/{WRITE_REPO.repo} 的 {WRITE_REPO.branch}
-				分支，Cloudflare Pages 自动构建上线。token 需要仓库 Contents 读写权限（Fine-grained 勾选该仓库的
+				输入 GitHub Personal Access Token 登录后，可以直接在博客里写文章：「暂存草稿」存到
+				{WRITE_REPO.owner}/{WRITE_REPO.repo} 的 {DRAFT_BRANCH}
+				分支（不影响线上），想上线时点「发布」提交 {WRITE_REPO.branch}
+				分支，Cloudflare Pages 构建约 1-2 分钟后生效。token 需要仓库 Contents 读写权限（Fine-grained 勾选该仓库的
 				Contents: Read and write，或 Classic 勾选 repo 范围）。
 			</p>
 			<input
@@ -828,12 +1061,44 @@ async function insertAtCursor(text: string) {
 							>
 								{item.draft ? "草稿" : "已发布"}
 							</span>
+							{#if isLoggedIn && draftIndex.has(item.path)}
+								<span
+									class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+								>
+									有草稿
+								</span>
+							{/if}
 							<span class="shrink-0 text-xs text-50 tabular-nums">
 								{item.published || "—"}
 							</span>
 						</button>
 					{/each}
 				</div>
+				{#if isLoggedIn && draftOnlyItems.length > 0}
+					<div class="mt-5 pt-4 border-t border-black/5 dark:border-white/10">
+						<div class="text-xs text-50 mb-1.5">
+							云端草稿 · 仅存于 {DRAFT_BRANCH} 分支，尚未发布（{draftOnlyItems.length}）
+						</div>
+						<div class="divide-y divide-black/5 dark:divide-white/10">
+							{#each draftOnlyItems as draft (draft.path)}
+								<button
+									type="button"
+									class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+									onclick={() => void openDraftOnly(draft.path)}
+								>
+									<span class="flex-1 min-w-0 truncate font-mono text-xs text-75">
+										{draft.name}
+									</span>
+									<span
+										class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+									>
+										草稿
+									</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	{:else}
@@ -895,14 +1160,60 @@ async function insertAtCursor(text: string) {
 				</button>
 				<button
 					type="button"
+					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
+					onclick={() => void saveDraft()}
+					disabled={!isLoggedIn || savingDraft}
+					title={isLoggedIn
+						? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
+						: "登录后才能暂存"}
+				>
+					{savingDraft ? "暂存中……" : "暂存草稿"}
+				</button>
+				<button
+					type="button"
 					class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"
 					onclick={() => void save()}
 					disabled={!isLoggedIn || saving}
-					title={isLoggedIn ? "" : "登录后才能保存"}
+					title={isLoggedIn
+						? "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"
+						: "登录后才能发布"}
 				>
-					{saving ? "保存中……" : "保存"}
+					{saving ? "发布中……" : "发布"}
 				</button>
 			</div>
+
+			{#if draftBanner && !editorLoading && !editorError}
+				<div
+					class="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-75 flex flex-wrap items-center gap-3"
+				>
+					<span class="flex-1 min-w-0 leading-relaxed">
+						这篇有未发布的云端草稿（保存于 {draftBanner}），内容与当前版本不同。可继续编辑当前内容，或载入草稿。
+					</span>
+					<button
+						type="button"
+						class="btn-regular rounded-(--radius-large) px-4 h-8 text-xs shrink-0"
+						onclick={() => void loadDraftVersion()}
+						disabled={loadingDraft}
+					>
+						{loadingDraft ? "载入中……" : "载入草稿"}
+					</button>
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-4 h-8 text-xs shrink-0 hover:text-red-500"
+						onclick={() => void discardDraft()}
+						disabled={discardingDraft}
+					>
+						{discardingDraft ? "丢弃中……" : "丢弃草稿"}
+					</button>
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-3 h-8 text-xs shrink-0"
+						onclick={() => (draftBanner = null)}
+					>
+						忽略
+					</button>
+				</div>
+			{/if}
 
 			{#if editorError}
 				<div

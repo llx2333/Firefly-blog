@@ -81,7 +81,8 @@ function classify(
 	return new GitHubError("server", status, message);
 }
 
-async function ghFetch(
+/** 底层请求封装；drafts.ts 的草稿分支 API 复用同一套错误分类与头 */
+export async function ghFetch(
 	token: string,
 	path: string,
 	init: RequestInit = {},
@@ -274,30 +275,4 @@ export async function deleteFile(
 			}),
 		},
 	);
-}
-
-/** 上传图片（base64 原始字节，浏览器 FileReader 提供） */
-export async function putImageBase64(
-	token: string,
-	fileName: string,
-	base64: string,
-	message: string,
-): Promise<{ sha: string }> {
-	const res = await ghFetch(
-		token,
-		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${encodeURI(`${IMAGES_DIR}/${fileName}`)}`,
-		{
-			method: "PUT",
-			body: JSON.stringify({
-				message,
-				content: base64,
-				branch: WRITE_REPO.branch,
-			}),
-		},
-	);
-	const data = (await res.json()) as { content?: { sha?: string } };
-	if (!data.content?.sha) {
-		throw new GitHubError("server", 0, "上传成功但未返回版本号");
-	}
-	return { sha: data.content.sha };
 }
