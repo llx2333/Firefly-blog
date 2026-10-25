@@ -1,0 +1,24 @@
+---
+/**
+ * /write/ 写作中心：博客内嵌编辑页（token 登录 → 列表 → 编辑/预览 → 提交 GitHub）。
+ * 页面本身保持极薄，全部 UI / 状态在 WriteEditor.svelte island 里（client:load，
+ * 与 search.astro 的 AdvancedSearch 同款做法）。排版依赖（markdown.css /
+ * markdown-extend.styl）在这里 frontmatter 引入，Astro 会打进页面 CSS。
+ */
+import WriteEditor from "@components/write/WriteEditor.svelte";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import "@/styles/markdown.css";
+import "@/styles/markdown-extend.styl";
+
+const title = "写作";
+const description = "在博客里直接书写与发布文章";
+---
+
+<MainGridLayout title={title} description={description}>
+  <meta slot="head" name="robots" content="noindex" />
+  <div class="flex w-full rounded-(--radius-large) overflow-hidden relative">
+    <div class="card-base z-10 px-4 md:px-6 py-4 md:py-6 relative w-full">
+      <WriteEditor client:load />
+    </div>
+  </div>
+</MainGridLayout>
