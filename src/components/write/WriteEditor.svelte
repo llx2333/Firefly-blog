@@ -44,6 +44,7 @@ import {
 	timestampPrefix,
 	todayDateString,
 } from "@/utils/write/slug";
+import DateField from "./DateField.svelte";
 
 type View = "login" | "list" | "editor";
 
@@ -85,7 +86,7 @@ export function greet(name: string): string {
 `;
 
 const inputClass =
-	"w-full px-3 py-2 text-sm bg-transparent border border-black/10 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-(--primary) focus:border-(--primary) hover:border-black/20 dark:hover:border-white/20 text-75 placeholder:opacity-50 transition-colors outline-hidden";
+	"w-full px-3 py-2 text-sm bg-transparent border border-black/10 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-(--primary) focus:border-(--primary) hover:border-black/20 dark:hover:border-white/20 text-75 write-input transition-colors outline-hidden";
 
 const labelClass = "block text-xs font-medium text-50 mb-1";
 
@@ -1251,12 +1252,12 @@ async function insertAtCursor(text: string) {
 						</div>
 						<div>
 							<label class={labelClass} for="we-published">发布日期（published） *</label>
-							<input id="we-published" type="date" class={inputClass} bind:value={fm.published}>
+							<DateField id="we-published" inputClass={inputClass} bind:value={fm.published} />
 						</div>
 						<div>
 							<label class={labelClass} for="we-updated">更新日期（updated）</label>
 							<div class="flex gap-2">
-								<input id="we-updated" type="date" class={inputClass} bind:value={fm.updated}>
+								<DateField id="we-updated" inputClass={inputClass} bind:value={fm.updated} />
 								<button
 									type="button"
 									class="btn-plain rounded-lg px-3 h-9 text-xs shrink-0"

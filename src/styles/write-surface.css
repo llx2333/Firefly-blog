@@ -8,3 +8,223 @@
 		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
 		'Courier New', var(--font-lxgw-wenkai-mono, 'LXGW WenKai Mono'), monospace;
 }
+
+/* ===== 模态弹窗表面 =====
+   普通卡片走 --card-bg-transparent（默认 0.79），壁纸会透过弹窗，提示文字发糊；
+   弹窗作为「抬高一层」的表面用更实的 --card-bg-elevated，并补一条兜底声明
+   （老浏览器解析不了 rgb() 里的 calc 透明度时退回不透明卡片色）。 */
+.write-dialog {
+	border: 1px solid var(--line-divider);
+	background-color: var(--card-bg);
+	background-color: var(--card-bg-elevated);
+	/* 兜底：残余 4% 透出的壁纸在毛玻璃下变成柔和底色，不会变成可读的字 */
+	backdrop-filter: blur(18px) saturate(1.05);
+	-webkit-backdrop-filter: blur(18px) saturate(1.05);
+}
+
+/* 写作表单输入框占位字：Tailwind preflight 的 50% 会再乘 currentColor 的 75%，
+   实际只剩 37.5% 不透明度，浅壁纸下几乎看不清，所以这里显式给足对比度 */
+.write-input::placeholder {
+	color: rgb(0 0 0 / 0.5);
+}
+
+.dark .write-input::placeholder {
+	color: rgb(255 255 255 / 0.55);
+}
+
+/* ===== 日期选择器（DateField.svelte）=====
+   原生 type=date 的日历弹层由浏览器绘制，不读站点 CSS；这里全部自绘，
+   颜色只引用主题变量，暗色/亮色自动跟随，不写死黑白。 */
+
+.dp-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 8px;
+	color: rgba(0, 0, 0, 0.5);
+	transition:
+		background-color 0.15s,
+		color 0.15s;
+}
+
+.dp-trigger:hover {
+	background-color: var(--btn-plain-bg-hover);
+	color: rgba(0, 0, 0, 0.7);
+}
+
+.dark .dp-trigger {
+	color: rgba(255, 255, 255, 0.5);
+}
+
+.dark .dp-trigger:hover {
+	color: rgba(255, 255, 255, 0.82);
+}
+
+.dp-panel {
+	position: fixed;
+	/* 弹窗挂在 #top-row（z-80 层叠上下文）里，面板必须高过它才能画在弹窗之上 */
+	z-index: 9999;
+	padding: 12px;
+	border: 1px solid var(--line-divider);
+	border-radius: var(--radius-large);
+	background-color: var(--card-bg);
+	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+	user-select: none;
+}
+
+.dark .dp-panel {
+	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+}
+
+.dp-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px;
+	margin-bottom: 6px;
+}
+
+.dp-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: rgba(0, 0, 0, 0.8);
+	letter-spacing: 0.02em;
+}
+
+.dark .dp-title {
+	color: rgba(255, 255, 255, 0.85);
+}
+
+.dp-nav {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 8px;
+	color: rgba(0, 0, 0, 0.5);
+	transition:
+		background-color 0.15s,
+		color 0.15s;
+}
+
+.dp-nav:hover {
+	background-color: var(--btn-plain-bg-hover);
+	color: rgba(0, 0, 0, 0.8);
+}
+
+.dark .dp-nav {
+	color: rgba(255, 255, 255, 0.55);
+}
+
+.dark .dp-nav:hover {
+	color: rgba(255, 255, 255, 0.9);
+}
+
+.dp-grid {
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	gap: 2px;
+}
+
+.dp-weekday {
+	padding: 4px 0 6px;
+	font-size: 11px;
+	text-align: center;
+	color: rgba(0, 0, 0, 0.5);
+}
+
+.dark .dp-weekday {
+	color: rgba(255, 255, 255, 0.5);
+}
+
+.dp-day {
+	height: 32px;
+	border-radius: 8px;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	color: rgba(0, 0, 0, 0.78);
+	transition:
+		background-color 0.12s,
+		color 0.12s;
+}
+
+.dp-day:hover {
+	background-color: var(--btn-plain-bg-hover);
+}
+
+.dark .dp-day {
+	color: rgba(255, 255, 255, 0.78);
+}
+
+.dp-day.is-outside {
+	color: rgba(0, 0, 0, 0.28);
+}
+
+.dark .dp-day.is-outside {
+	color: rgba(255, 255, 255, 0.24);
+}
+
+.dp-day.is-today {
+	box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+/* 选中日：--primary 两档明度（0.70 / 0.75）都偏亮，配深字才够对比 */
+.dp-day.is-selected {
+	background-color: var(--primary);
+	color: oklch(0.22 0.02 var(--hue));
+	font-weight: 600;
+}
+
+.dp-day:focus-visible,
+.dp-nav:focus-visible,
+.dp-trigger:focus-visible,
+.dp-action:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 1px;
+}
+
+.dp-foot {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid var(--line-divider);
+}
+
+.dp-action {
+	padding: 4px 6px;
+	border-radius: 6px;
+	font-size: 12px;
+	color: rgba(0, 0, 0, 0.55);
+	transition:
+		background-color 0.15s,
+		color 0.15s;
+}
+
+.dp-action:hover {
+	background-color: var(--btn-plain-bg-hover);
+	color: rgba(0, 0, 0, 0.82);
+}
+
+.dark .dp-action {
+	color: rgba(255, 255, 255, 0.6);
+}
+
+.dark .dp-action:hover {
+	color: rgba(255, 255, 255, 0.9);
+}
+
+.dp-action-strong {
+	color: var(--btn-content);
+}
+
+.dp-action-strong:hover {
+	color: var(--primary);
+}
+
+.dark .dp-action-strong {
+	color: var(--primary);
+}

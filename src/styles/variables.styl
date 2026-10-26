@@ -10,6 +10,9 @@
   --card-bg: white
   /* 卡片玻璃底不透明度兜底 0.88（批三）：田园壁纸浅且带纹理，0.6 时卡内文字费眼 */
   --card-bg-transparent: unquote("rgb(255 255 255 / var(--card-transparent-opacity, 0.88))")
+  /* 模态弹层表面：卡片透明度只留 8% 影响（0.79 → 0.963），弹窗必须比卡片实。
+     卡片透明度调低时壁纸字会透过弹窗，浅色提示字与背景糊在一起看不清 */
+  --card-bg-elevated: unquote("rgb(255 255 255 / calc(var(--card-transparent-opacity, 0.88) * 0.08 + 0.9))")
   
   --btn-content: oklch(0.55 0.06 var(--hue))
   --btn-regular-bg: oklch(0.95 0.025 var(--hue))
@@ -94,6 +97,7 @@
   --page-bg: oklch(0.16 0.014 var(--hue))
   --card-bg: oklch(0.23 0.015 var(--hue))
   --card-bg-transparent: unquote("rgb(23 23 23 / var(--card-transparent-opacity, 0.88))")
+  --card-bg-elevated: unquote("rgb(23 23 23 / calc(var(--card-transparent-opacity, 0.88) * 0.08 + 0.9))")
 
   /* 导航栏玻璃高光与发丝线（暗色） */
   --navbar-glass-highlight: rgba(255, 255, 255, 0.06)

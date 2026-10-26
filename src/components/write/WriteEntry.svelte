@@ -9,6 +9,7 @@
 import { tick } from "svelte";
 import { ensureVerified, resolveToken } from "@/utils/write/auth";
 import { todayDateString } from "@/utils/write/slug";
+import DateField from "./DateField.svelte";
 
 let authed = $state(false);
 let open = $state(false);
@@ -29,7 +30,7 @@ let error = $state("");
 let titleInput = $state<HTMLInputElement | null>(null);
 
 const inputClass =
-	"w-full px-3 py-2 text-sm bg-transparent border border-black/10 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-(--primary) focus:border-(--primary) hover:border-black/20 dark:hover:border-white/20 text-75 placeholder:opacity-50 transition-colors outline-hidden";
+	"w-full px-3 py-2 text-sm bg-transparent border border-black/10 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-(--primary) focus:border-(--primary) hover:border-black/20 dark:hover:border-white/20 text-75 write-input transition-colors outline-hidden";
 
 const labelClass = "block text-xs font-medium text-50 mb-1";
 
@@ -121,10 +122,10 @@ function confirmNew() {
 			aria-hidden="true"
 			class="text-[1.25rem]"
 		>
-			<!-- material-symbols:edit-outline-rounded（描边笔，与导航栏同族图标同笔重） -->
+			<!-- material-symbols:edit-square-outline-rounded（方框编辑符，与导航栏同族图标同笔重） -->
 			<path
 				fill="currentColor"
-				d="M5 19h1.425L16.2 9.225L14.775 7.8L5 17.575zm-1 2q-.425 0-.712-.288T3 20v-2.425q0-.4.15-.763t.425-.637L16.2 3.575q.3-.275.663-.425t.762-.15t.775.15t.65.45L20.425 5q.3.275.437.65T21 6.4q0 .4-.138.763t-.437.662l-12.6 12.6q-.275.275-.638.425t-.762.15zM19 6.4L17.6 5zm-3.525 2.125l-.7-.725L16.2 9.225z"
+				d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h6.525q.5 0 .75.313t.25.687t-.262.688T11.5 5H5v14h14v-6.525q0-.5.313-.75t.687-.25t.688.25t.312.75V19q0 .825-.587 1.413T19 21zm4-7v-2.425q0-.4.15-.763t.425-.637l8.6-8.6q.3-.3.675-.45t.75-.15q.4 0 .763.15t.662.45L22.425 3q.275.3.425.663T23 4.4t-.137.738t-.438.662l-8.6 8.6q-.275.275-.637.438t-.763.162H10q-.425 0-.712-.288T9 14m12.025-9.6l-1.4-1.4zM11 13h1.4l5.8-5.8l-.7-.7l-.725-.7L11 11.575zm6.5-6.5l-.725-.7zl.7.7z"
 			></path>
 		</svg>
 	</button>
@@ -134,7 +135,7 @@ function confirmNew() {
 	<!-- body 级 fixed 悬浮窗（表格单元格裁剪教训：浮层一律 fixed + 高 z-index） -->
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
 		<div
-			class="card-base rounded-(--radius-large) w-full px-6 py-6 shadow-xl max-h-[85vh] overflow-y-auto write-surface"
+			class="write-dialog write-surface rounded-(--radius-large) w-full px-6 py-6 shadow-xl max-h-[85vh] overflow-y-auto"
 			style="max-width: 28rem;"
 			role="dialog"
 			aria-modal="true"
@@ -158,7 +159,7 @@ function confirmNew() {
 			<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 mb-3">
 				<div>
 					<label class={labelClass} for="we-seed-published">发布日期</label>
-					<input id="we-seed-published" type="date" class={inputClass} bind:value={published}>
+					<DateField id="we-seed-published" inputClass={inputClass} bind:value={published} />
 				</div>
 				<div>
 					<label class={labelClass} for="we-seed-category">分类</label>
