@@ -8,7 +8,12 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onMount, tick } from "svelte";
-import { clearVerified, markVerified, resolveToken } from "@/utils/write/auth";
+import {
+	clearVerified,
+	markVerified,
+	readVerifiedLogin,
+	resolveToken,
+} from "@/utils/write/auth";
 import {
 	DRAFT_BRANCH,
 	deleteDraftFile,
@@ -245,10 +250,22 @@ onMount(() => {
 		return;
 	}
 	token = saved;
+	const cachedLogin = readVerifiedLogin(saved);
+	if (cachedLogin) {
+		userLogin = cachedLogin;
+		authChecking = false;
+		if (wantsNewPost()) {
+			newPost();
+			return;
+		}
+		view = "list";
+		void loadList();
+		return;
+	}
 	fetchCurrentUser(saved)
 		.then((user) => {
 			userLogin = user.login;
-			markVerified(saved);
+			markVerified(saved, user.login);
 			if (wantsNewPost()) {
 				newPost();
 				return;
@@ -287,7 +304,7 @@ async function handleLogin() {
 	try {
 		const user = await fetchCurrentUser(value);
 		storeToken(value);
-		markVerified(value);
+		markVerified(value, user.login);
 		userLogin = user.login;
 		tokenInput = "";
 		if (wantsNewPost()) {

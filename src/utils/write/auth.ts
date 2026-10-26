@@ -45,27 +45,51 @@ function fingerprint(token: string): string {
 	return `${token.length}:${token.slice(0, 8)}:${token.slice(-4)}`;
 }
 
-function hasFreshVerification(token: string): boolean {
+interface VerificationRecord {
+	fp: string;
+	at: number;
+	/** 验证时拿到的 GitHub 登录名：有它就不必再打 GET /user */
+	login?: string;
+}
+
+/** TTL 内的验证记录；过期 / 指纹不符 / 解析失败都是 null */
+function readFreshVerification(token: string): VerificationRecord | null {
 	try {
 		const raw = localStorage.getItem(VERIFIED_KEY);
-		if (!raw) return false;
-		const parsed = JSON.parse(raw) as { fp?: unknown; at?: unknown };
-		return (
-			parsed.fp === fingerprint(token) &&
-			typeof parsed.at === "number" &&
-			Date.now() - parsed.at < VERIFIED_TTL_MS
-		);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as Partial<VerificationRecord>;
+		if (
+			parsed.fp !== fingerprint(token) ||
+			typeof parsed.at !== "number" ||
+			Date.now() - parsed.at >= VERIFIED_TTL_MS
+		) {
+			return null;
+		}
+		return { fp: parsed.fp, at: parsed.at, login: parsed.login };
 	} catch {
-		return false;
+		return null;
 	}
 }
 
+/** 缓存里的 GitHub 登录名；老记录没有 login 字段 → null（调用方退回一次 /user） */
+export function readVerifiedLogin(token: string): string | null {
+	const record = readFreshVerification(token);
+	return typeof record?.login === "string" && record.login
+		? record.login
+		: null;
+}
+
 /** 验证通过时调用（编辑器登录成功路径），TTL 内入口免验证直接显示 */
-export function markVerified(token: string): void {
+export function markVerified(token: string, login?: string): void {
 	try {
+		const previous = readFreshVerification(token);
 		localStorage.setItem(
 			VERIFIED_KEY,
-			JSON.stringify({ fp: fingerprint(token), at: Date.now() }),
+			JSON.stringify({
+				fp: fingerprint(token),
+				at: Date.now(),
+				login: login ?? previous?.login,
+			}),
 		);
 	} catch {
 		// 隐私模式 localStorage 不可用：每次页面加载多一次 /user，功能不受影响
@@ -84,10 +108,10 @@ export function clearVerified(): void {
 /** 静默验证：缓存新鲜直接通过；/user 成功则标记；失败（含 401/403/断网）一律不显示入口 */
 export async function ensureVerified(token: string): Promise<boolean> {
 	if (!token) return false;
-	if (hasFreshVerification(token)) return true;
+	if (readFreshVerification(token)) return true;
 	try {
-		await fetchCurrentUser(token);
-		markVerified(token);
+		const user = await fetchCurrentUser(token);
+		markVerified(token, user.login);
 		return true;
 	} catch {
 		return false;

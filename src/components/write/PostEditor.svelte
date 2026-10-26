@@ -15,6 +15,7 @@ import {
 	clearVerified,
 	ensureVerified,
 	markVerified,
+	readVerifiedLogin,
 	resolveToken,
 } from "@/utils/write/auth";
 import {
@@ -123,12 +124,17 @@ let sha = $state<string | null>(null);
 let savedSnapshot = $state("");
 let tagsInput = $state("");
 let seriesOrderInput = $state("");
-let showFrontmatter = $state(true);
+/** 进编辑默认只露正文；标题/日期/标签等点「展开文章信息」再改 */
+let showFrontmatter = $state(false);
 let mobileTab = $state<"edit" | "preview">("edit");
 let saving = $state(false);
 let uploadingImage = $state(false);
 let bodyTextarea = $state<HTMLTextAreaElement | null>(null);
 let imageInput = $state<HTMLInputElement | null>(null);
+/** 待机态预取远端正文：点「编辑」不必再等一次 Contents API（本机实测单次往返约 5s） */
+let prefetchToken = "";
+let prefetchPromise: Promise<{ text: string; sha: string } | null> | null =
+	null;
 
 // --- 云端草稿（write-drafts 分支）---
 let draftSha = $state<string | null>(null);
@@ -138,6 +144,13 @@ let discardingDraft = $state(false);
 let draftBanner = $state<string | null>(null); // 非空 = 有未发布草稿，值为保存时间文案
 
 const remotePath = `${POSTS_DIR}/${fileName}`;
+
+/** 待机态预取远端正文；同 token 只跑一次，失败静默（点开时现场再拉） */
+function primeRemote(tok: string) {
+	if (!tok || mode !== "idle" || prefetchPromise) return;
+	prefetchToken = tok;
+	prefetchPromise = fetchFile(tok, remotePath).catch(() => null);
+}
 const isLoggedIn = $derived(userLogin !== null && token !== "");
 const dirty = $derived(
 	mode === "editing" &&
@@ -265,8 +278,21 @@ $effect(() => {
 
 // 入口门控：token（自身或 /admin 复用）经 GET /user 静默验证后才显示「编辑」
 $effect(() => {
-	void ensureVerified(resolveToken()).then((ok) => {
+	const saved = resolveToken();
+	// 认证缓存命中（6h 内、token 未变）→ 跳过 GET /user，直接摆出入口并预取正文
+	const cachedLogin = readVerifiedLogin(saved);
+	if (cachedLogin) {
+		token = saved;
+		userLogin = cachedLogin;
+		authed = true;
+		primeRemote(saved);
+		return;
+	}
+	void ensureVerified(saved).then((ok) => {
 		authed = ok;
+		if (!ok) return;
+		userLogin = readVerifiedLogin(saved);
+		primeRemote(saved);
 	});
 });
 
@@ -286,23 +312,42 @@ function beginEdit() {
 	loginError = "";
 	reloginHint = "";
 	const saved = resolveToken();
-	if (saved) {
-		token = saved;
-		void verifyAndLoad(saved);
-	} else {
+	if (!saved) {
 		mode = "login";
+		return;
 	}
+	token = saved;
+	// 先切进编辑态（加载占位立刻出现，点击不再像没反应），网络排在后面
+	primeRemote(saved);
+	mode = "editing";
+	void verifyAndLoad(saved);
 }
 
 async function verifyAndLoad(value: string) {
 	loginBusy = true;
 	loginError = "";
+	// 缓存里的登录名可信（与入口门控同一份 6h 记录）：不再打 GET /user，
+	// 401 由 loadRemote 兜底（kickToRelogin → 登录卡）
+	const cachedLogin = userLogin ?? readVerifiedLogin(value);
+	if (cachedLogin) {
+		token = value;
+		persistToken(value);
+		userLogin = cachedLogin;
+		loginBusy = false;
+		if (editorReady) {
+			// 401 后重新验证：编辑现场原样恢复，不再拉远端覆盖
+			mode = "editing";
+			return;
+		}
+		await loadRemote();
+		return;
+	}
 	try {
 		const user = await fetchCurrentUser(value);
 		token = value;
 		persistToken(value);
 		userLogin = user.login;
-		markVerified(value);
+		markVerified(value, user.login);
 		tokenInput = "";
 		if (editorReady) {
 			// 401 后重新验证：编辑现场原样恢复，不再拉远端覆盖
@@ -326,7 +371,11 @@ async function loadRemote() {
 	editorLoading = true;
 	editorError = "";
 	try {
-		const file = await fetchFile(token, remotePath);
+		const primed =
+			prefetchPromise && prefetchToken === token ? prefetchPromise : null;
+		prefetchPromise = null;
+		// 预取失败（待机期间断网 / 404）→ 现场再拉一次，偶发失败不直接进错误态
+		const file = (await primed) ?? (await fetchFile(token, remotePath));
 		const parsed = parsePostFile(file.text);
 		fm = parsed.frontmatter;
 		body = parsed.body;
@@ -367,6 +416,8 @@ async function loadRemote() {
 			editorError = describeGitHubError(error);
 			if (error instanceof GitHubError && error.kind === "unauthorized") {
 				kickToRelogin();
+				// 缓存验证被远端否定：还没进过编辑现场就直接回登录卡，别停在空壳上
+				if (!editorReady) mode = "login";
 			}
 		}
 	} finally {
@@ -744,81 +795,87 @@ async function insertAtCursor(text: string) {
 				>
 					← 退出编辑
 				</button>
-				<button
-					type="button"
-					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
-					onclick={() => (showFrontmatter = !showFrontmatter)}
-				>
-					{showFrontmatter ? "收起文章信息" : "展开文章信息"}
-				</button>
-				<span class="flex-1"></span>
-				<span
-					class="text-xs px-2.5 py-1 rounded-full border border-black/10 dark:border-white/15 text-50 font-mono"
-				>
-					{fileName}
-				</span>
-				<span
-					class="text-xs px-2.5 py-1 rounded-full border border-black/10 dark:border-white/15 text-50"
-				>
-					{sha ? "已同步远端" : "远端还没有，发布即新建"}
-				</span>
-				{#if draftSha}
-					<span
-						class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-					>
-						有云端草稿
-					</span>
-				{/if}
-				{#if !isLoggedIn}
+				{#if editorReady}
 					<button
 						type="button"
-						class="text-xs px-2.5 py-1 rounded-full border border-(--primary)/40 text-(--primary) hover:bg-(--primary)/10 transition-colors"
-						onclick={() => {
-							reloginHint = "登录已失效，编辑内容已保留";
-							mode = "login";
-						}}
+						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
+						onclick={() => (showFrontmatter = !showFrontmatter)}
+						aria-expanded={showFrontmatter}
 					>
-						重新验证
+						{showFrontmatter ? "收起文章信息" : "展开文章信息"}
 					</button>
 				{/if}
-				<input
-					type="file"
-					accept="image/*"
-					class="hidden"
-					bind:this={imageInput}
-					onchange={(event) => void handleImageSelected(event)}
-				>
-				<button
-					type="button"
-					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
-					onclick={() => imageInput?.click()}
-					disabled={!isLoggedIn || uploadingImage}
-					title={isLoggedIn ? "" : "重新验证后才能上传图片"}
-				>
-					{uploadingImage ? "上传中……" : "插入图片"}
-				</button>
-				<button
-					type="button"
-					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
-					onclick={() => void saveDraft()}
-					disabled={!isLoggedIn || savingDraft}
-					title={isLoggedIn
-						? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
-						: "重新验证后才能暂存"}
-				>
-					{savingDraft ? "暂存中……" : "暂存草稿"}
-				</button>
-				<button
-					type="button"
-					class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"
-					onclick={() => void save()}
-					disabled={!isLoggedIn || saving}
-					title={isLoggedIn
-						? "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"
-						: "重新验证后才能发布"}
-				>
-					{saving ? "发布中……" : "发布"}
-				</button>
+				<span class="flex-1"></span>
+				<!-- 载入完成前不显示远端状态与动作：sha 还没拿到，徽标会闪出「远端还没有 / 重新验证」 -->
+				{#if editorReady}
+					<span
+						class="text-xs px-2.5 py-1 rounded-full border border-black/10 dark:border-white/15 text-50 font-mono"
+					>
+						{fileName}
+					</span>
+					<span
+						class="text-xs px-2.5 py-1 rounded-full border border-black/10 dark:border-white/15 text-50"
+					>
+						{sha ? "已同步远端" : "远端还没有，发布即新建"}
+					</span>
+					{#if draftSha}
+						<span
+							class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							有云端草稿
+						</span>
+					{/if}
+					{#if !isLoggedIn}
+						<button
+							type="button"
+							class="text-xs px-2.5 py-1 rounded-full border border-(--primary)/40 text-(--primary) hover:bg-(--primary)/10 transition-colors"
+							onclick={() => {
+								reloginHint = "登录已失效，编辑内容已保留";
+								mode = "login";
+							}}
+						>
+							重新验证
+						</button>
+					{/if}
+					<input
+						type="file"
+						accept="image/*"
+						class="hidden"
+						bind:this={imageInput}
+						onchange={(event) => void handleImageSelected(event)}
+					>
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
+						onclick={() => imageInput?.click()}
+						disabled={!isLoggedIn || uploadingImage}
+						title={isLoggedIn ? "" : "重新验证后才能上传图片"}
+					>
+						{uploadingImage ? "上传中……" : "插入图片"}
+					</button>
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
+						onclick={() => void saveDraft()}
+						disabled={!isLoggedIn || savingDraft}
+						title={isLoggedIn
+							? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
+							: "重新验证后才能暂存"}
+					>
+						{savingDraft ? "暂存中……" : "暂存草稿"}
+					</button>
+					<button
+						type="button"
+						class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"
+						onclick={() => void save()}
+						disabled={!isLoggedIn || saving}
+						title={isLoggedIn
+							? "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"
+							: "重新验证后才能发布"}
+					>
+						{saving ? "发布中……" : "发布"}
+					</button>
+				{/if}
 			</div>
 
 			{#if draftBanner && !editorLoading && !editorError}
@@ -871,8 +928,36 @@ async function insertAtCursor(text: string) {
 				</div>
 			{/if}
 
-			{#if editorLoading}
-				<div class="py-16 text-center text-50 text-sm">正在加载文章内容……</div>
+			<!-- /user 等待期（!editorReady）也算加载中：绝不能先渲染出空白编辑器 -->
+			{#if editorLoading || !editorReady}
+				<div class="py-6" aria-busy="true" aria-live="polite">
+					<div
+						class="min-h-[60vh] rounded-(--radius-large) border border-black/5 dark:border-white/10 bg-black/[.015] dark:bg-white/[.02] flex flex-col items-center justify-center gap-3"
+					>
+						<!-- spinner 与 DynamicSidebar 同款，保持全站一致 -->
+						<svg
+							class="size-5 animate-spin text-(--primary)"
+							viewBox="0 0 24 24"
+							fill="none"
+						>
+							<circle
+								cx="12"
+								cy="12"
+								r="10"
+								stroke="currentColor"
+								stroke-width="3"
+								opacity="0.25"
+							/>
+							<path
+								d="M4 12a8 8 0 018-8"
+								stroke="currentColor"
+								stroke-width="3"
+								stroke-linecap="round"
+							/>
+						</svg>
+						<p class="m-0 text-xs text-75">正在载入远端内容……</p>
+					</div>
+				</div>
 			{:else}
 				<!-- frontmatter 折叠表单 -->
 				{#if showFrontmatter}
