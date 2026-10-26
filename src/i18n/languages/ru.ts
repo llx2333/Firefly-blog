@@ -132,6 +132,7 @@ export const ru: Translation = {
 	[Key.updatedAt]: "Обновлено",
 	[Key.readTime]: "Время чтения",
 	[Key.license]: "Лицензия",
+	[Key.licenseNote]: "При перепубликации указывайте источник",
 	[Key.bangumi]: "Bangumi",
 
 	// Фильтр и статус Бангуми текст
@@ -370,11 +371,6 @@ export const ru: Translation = {
 
 	// Похожие статьи
 	[Key.relatedPosts]: "Похожие статьи",
-	[Key.randomPosts]: "Случайные статьи",
-	[Key.smartRecommend]: "Умный",
-	[Key.randomRecommend]: "Случайный",
-	[Key.noRelatedPosts]: "Нет похожих статей",
-	[Key.noRandomPosts]: "Нет случайных статей",
 
 	// Серия статей
 	[Key.series]: "Серии",

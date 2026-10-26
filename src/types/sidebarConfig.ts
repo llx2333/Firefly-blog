@@ -5,6 +5,7 @@ export type WidgetComponentType =
 	| "categories"
 	| "tags"
 	| "sidebarToc"
+	| "relatedPosts"
 	| "advertisement"
 	| "stats"
 	| "calendar"

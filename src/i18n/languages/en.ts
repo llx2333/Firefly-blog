@@ -132,6 +132,7 @@ export const en: Translation = {
 	[Key.updatedAt]: "Updated at",
 	[Key.readTime]: "Read time",
 	[Key.license]: "License",
+	[Key.licenseNote]: "Please credit the original source when reposting",
 	[Key.bangumi]: "Bangumi",
 
 	// Bangumi Filter and Status Text
@@ -369,11 +370,6 @@ export const en: Translation = {
 
 	// Related Posts
 	[Key.relatedPosts]: "Related Posts",
-	[Key.randomPosts]: "Random Posts",
-	[Key.smartRecommend]: "Smart",
-	[Key.randomRecommend]: "Random",
-	[Key.noRelatedPosts]: "No related posts",
-	[Key.noRandomPosts]: "No random posts",
 
 	// Article Series
 	[Key.series]: "Series",

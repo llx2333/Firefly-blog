@@ -131,6 +131,7 @@ export const ja: Translation = {
 	[Key.updatedAt]: "更新日",
 	[Key.readTime]: "読了時間",
 	[Key.license]: "ライセンス",
+	[Key.licenseNote]: "転載の際は出典を明記してください",
 	[Key.bangumi]: "Bangumi",
 
 	// バングミフィルターと状態文本
@@ -366,11 +367,6 @@ export const ja: Translation = {
 
 	// 関連記事
 	[Key.relatedPosts]: "関連記事",
-	[Key.randomPosts]: "ランダム記事",
-	[Key.smartRecommend]: "スマート",
-	[Key.randomRecommend]: "ランダム",
-	[Key.noRelatedPosts]: "関連記事がありません",
-	[Key.noRandomPosts]: "ランダム記事がありません",
 
 	// 記事シリーズ
 	[Key.series]: "シリーズ",

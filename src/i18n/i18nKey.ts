@@ -355,11 +355,7 @@ enum I18nKey {
 
 	// 相关文章推荐
 	relatedPosts = "relatedPosts",
-	randomPosts = "randomPosts",
-	smartRecommend = "smartRecommend",
-	randomRecommend = "randomRecommend",
-	noRelatedPosts = "noRelatedPosts",
-	noRandomPosts = "noRandomPosts",
+	licenseNote = "licenseNote",
 
 	// 文章系列
 	series = "series",

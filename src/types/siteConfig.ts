@@ -166,8 +166,6 @@ export type SiteConfig = {
 		postNavigation: boolean;
 		// 是否显示相关文章推荐
 		relatedPosts: boolean;
-		// 是否显示随机文章推荐
-		randomPosts: boolean;
 		// OpenGraph图片功能
 		generateOgImages: boolean;
 		// 沉浸阅读配置

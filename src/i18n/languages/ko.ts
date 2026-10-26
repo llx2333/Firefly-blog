@@ -131,6 +131,7 @@ export const ko: Translation = {
 	[Key.updatedAt]: "수정일",
 	[Key.readTime]: "읽는 시간",
 	[Key.license]: "라이선스",
+	[Key.licenseNote]: "재게시 시 출처를 밝혀주세요",
 	[Key.bangumi]: "Bangumi",
 
 	// Bangumi Filter and Status Text
@@ -367,11 +368,6 @@ export const ko: Translation = {
 
 	// Related Posts
 	[Key.relatedPosts]: "관련 게시글",
-	[Key.randomPosts]: "무작위 게시글",
-	[Key.smartRecommend]: "스마트",
-	[Key.randomRecommend]: "무작위",
-	[Key.noRelatedPosts]: "관련 게시글이 없습니다",
-	[Key.noRandomPosts]: "무작위 게시글이 없습니다",
 
 	// 글 시리즈
 	[Key.series]: "시리즈",

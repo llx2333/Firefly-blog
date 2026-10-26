@@ -129,6 +129,7 @@ export const zh_TW: Translation = {
 	[Key.updatedAt]: "更新於",
 	[Key.readTime]: "閱讀時長",
 	[Key.license]: "許可協議",
+	[Key.licenseNote]: "轉載請註明出處",
 	[Key.bangumi]: "番組計劃",
 
 	// 番組計劃
@@ -361,11 +362,6 @@ export const zh_TW: Translation = {
 
 	// 相關文章推薦
 	[Key.relatedPosts]: "相關文章",
-	[Key.randomPosts]: "隨機文章",
-	[Key.smartRecommend]: "智慧推薦",
-	[Key.randomRecommend]: "隨機推薦",
-	[Key.noRelatedPosts]: "暫無相關文章",
-	[Key.noRandomPosts]: "暫無隨機文章",
 
 	// 文章系列
 	[Key.series]: "系列",

@@ -17,6 +17,8 @@ export let url: string;
 export let siteTitle: string;
 export let avatar: string | null = null;
 export let avatarSelector: string | null = null;
+/** compact：文末协议行内的小按钮形态（默认 false = 原大按钮） */
+export let compact = false;
 
 let showModal = false;
 let posterImage: string | null = null;
@@ -621,13 +623,15 @@ function portal(node: HTMLElement) {
 </script>
 
 <!-- Trigger Button -->
-<button 
-  class="btn-regular rounded-lg h-12 px-6 gap-2 hover:scale-105 active:scale-95 whitespace-nowrap"
+<button
+  class={compact
+    ? "btn-regular rounded-lg h-8 px-3 gap-1.5 text-sm hover:scale-105 active:scale-95 whitespace-nowrap"
+    : "btn-regular rounded-lg h-12 px-6 gap-2 hover:scale-105 active:scale-95 whitespace-nowrap"}
   on:click={generatePoster}
   aria-label="Generate Share Poster"
 >
-  <Icon icon="material-symbols:share" />
-  <span>{i18n(I18nKey.shareArticle)}</span>
+  <Icon icon="material-symbols:share" class={compact ? "text-sm" : ""} />
+  <span class={compact ? "text-xs" : ""}>{i18n(I18nKey.shareArticle)}</span>
 </button>
 
 

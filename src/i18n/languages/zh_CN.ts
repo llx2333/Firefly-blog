@@ -129,6 +129,7 @@ export const zh_CN: Translation = {
 	[Key.updatedAt]: "更新于",
 	[Key.readTime]: "阅读时长",
 	[Key.license]: "许可协议",
+	[Key.licenseNote]: "转载请注明出处",
 	[Key.bangumi]: "番组计划",
 
 	// 番组计划筛选和状态文本
@@ -359,11 +360,6 @@ export const zh_CN: Translation = {
 
 	// 相关文章推荐
 	[Key.relatedPosts]: "相关文章",
-	[Key.randomPosts]: "随机文章",
-	[Key.smartRecommend]: "智能推荐",
-	[Key.randomRecommend]: "随机推荐",
-	[Key.noRelatedPosts]: "暂无相关文章",
-	[Key.noRandomPosts]: "暂无随机文章",
 
 	// 文章系列
 	[Key.series]: "系列",

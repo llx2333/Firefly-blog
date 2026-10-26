@@ -4,16 +4,11 @@ import Comment from "@components/comment/index.astro";
 import Markdown from "@components/common/Markdown.astro";
 import EncryptedPost from "@components/features/EncryptedPost.astro";
 import KatexManager from "@components/features/KatexManager.astro";
-import License from "@components/misc/License.astro";
 import I18nKey from "@i18n/i18nKey";
 import { i18n } from "@i18n/translation";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
 import "@/styles/banner-post.css";
-import {
-	getRelatedPosts,
-	getSeriesPosts,
-	getSortedPosts,
-} from "@utils/content-utils";
+import { getSeriesPosts, getSortedPosts } from "@utils/content-utils";
 import {
 	getCategoryUrl,
 	getFileDirFromPath,
@@ -25,7 +20,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import CoverImage from "@/components/common/CoverImage.astro";
 import PostMetadata from "@/components/layout/PostMeta.astro";
-import RecommendedPost from "@/components/misc/RecommendedPost.astro";
+import RelatedPostsList from "@/components/misc/RelatedPostsList.astro";
 import SeriesNav from "@/components/misc/SeriesNav.astro";
 import SharePoster from "@/components/misc/SharePoster.svelte";
 import PostEditor from "@/components/write/PostEditor.svelte";
@@ -51,7 +46,8 @@ import { url } from "@/utils/url-utils";
 
 const showSponsorButton =
 	sponsorConfig.showButtonInPost && siteConfig.pages.sponsor;
-const showPostActionCard = siteConfig.post.share || showSponsorButton;
+const showLicenseRow =
+	licenseConfig.enable || siteConfig.post.share || showSponsorButton;
 
 export async function getStaticPaths() {
 	const blogEntries = await getSortedPosts();
@@ -204,8 +200,12 @@ const jsonLd = {
 	],
 };
 
-const relatedPosts = await getRelatedPosts(entry, 5);
 const seriesData = await getSeriesPosts(entry);
+// 文末协议行：单文章许可证优先，回退站点默认（原 License.astro 的解析规则）
+const licenseName = entry.data.licenseName || licenseConfig.name;
+const licenseHref = entry.data.licenseName
+	? entry.data.licenseUrl || undefined
+	: licenseConfig.url;
 ---
 
 <MainGridLayout
@@ -452,182 +452,66 @@ const seriesData = await getSeriesPosts(entry);
           <Markdown class="mb-6 markdown-content onload-animation">
             <Content />
           </Markdown>
-
-          {/* 打赏按钮 & 分享按钮 */}
-          {
-            showPostActionCard && (
-              <div class="mb-6 rounded-xl onload-animation">
-                <div class="p-6 bg-(--license-block-bg) rounded-xl">
-                  <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div class="flex items-center gap-3 flex-1">
-                      <div class="h-12 w-12 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70 shrink-0">
-                        <Icon
-                          name={sponsorConfig.showButtonInPost &&
-                          siteConfig.pages.sponsor
-                            ? "material-symbols:favorite"
-                            : "material-symbols:share"}
-                          class="text-2xl"
-                        />
-                      </div>
-                      <div>
-                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButton)
-                              : i18n(I18nKey.shareOnSocial)
-                          }
-                        </h3>
-                        <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButtonText)
-                              : i18n(I18nKey.shareOnSocialDescription)
-                          }
-                        </p>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      {
-                        siteConfig.post.share && (
-                          <SharePoster
-                            client:load
-                            title={entry.data.title}
-                            author={entry.data.author || profileConfig.name}
-                            description={entry.data.description || entry.data.title}
-                            pubDate={formatDateToYYYYMMDD(entry.data.published)}
-                            coverImage={posterCoverUrl}
-                            coverImageSelector={posterCoverSelector}
-                            url={Astro.url.href}
-                            siteTitle={siteConfig.title}
-                            avatar={posterAvatarUrl}
-                            avatarSelector={posterAvatarSelector}
-                          />
-                        )
-                      }
-                      {
-                        showSponsorButton && (
-                          <a
-                            href={url("/sponsor/")}
-                            class="inline-flex items-center gap-2 px-6 py-3 bg-(--primary) text-white dark:text-black/70 rounded-lg font-medium hover:bg-(--primary)/80 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                          >
-                            <span>{i18n(I18nKey.sponsor)}</span>
-                            <Icon name="fa7-solid:arrow-right" class="text-sm" />
-                          </a>
-                        )
-                      }
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          }
-
-          {
-            licenseConfig.enable && (
-              <License
-                title={entry.data.title}
-                id={entry.id}
-                pubDate={entry.data.published}
-                author={entry.data.author}
-                sourceLink={entry.data.sourceLink}
-                licenseName={entry.data.licenseName}
-                licenseUrl={entry.data.licenseUrl}
-                class="mb-6 rounded-xl license-container onload-animation"
-              />
-            )
-          }
         </EncryptedPost>
       ) : (
         <>
           <Markdown class="mb-6 markdown-content onload-animation">
             <Content />
           </Markdown>
-
-          {/* 打赏按钮 & 分享按钮 */}
-          {
-            showPostActionCard && (
-              <div class="mb-6 rounded-xl onload-animation">
-                <div class="p-6 bg-(--license-block-bg) rounded-xl">
-                  <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div class="flex items-center gap-3 flex-1">
-                      <div class="h-12 w-12 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70 shrink-0">
-                        <Icon
-                          name={sponsorConfig.showButtonInPost &&
-                          siteConfig.pages.sponsor
-                            ? "material-symbols:favorite"
-                            : "material-symbols:share"}
-                          class="text-2xl"
-                        />
-                      </div>
-                      <div>
-                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButton)
-                              : i18n(I18nKey.shareOnSocial)
-                          }
-                        </h3>
-                        <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButtonText)
-                              : i18n(I18nKey.shareOnSocialDescription)
-                          }
-                        </p>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      {
-                        siteConfig.post.share && (
-                          <SharePoster
-                            client:load
-                            title={entry.data.title}
-                            author={entry.data.author || profileConfig.name}
-                            description={entry.data.description || entry.data.title}
-                            pubDate={formatDateToYYYYMMDD(entry.data.published)}
-                            coverImage={posterCoverUrl}
-                            coverImageSelector={posterCoverSelector}
-                            url={Astro.url.href}
-                            siteTitle={siteConfig.title}
-                            avatar={posterAvatarUrl}
-                            avatarSelector={posterAvatarSelector}
-                          />
-                        )
-                      }
-                      {
-                        showSponsorButton && (
-                          <a
-                            href={url("/sponsor/")}
-                            class="inline-flex items-center gap-2 px-6 py-3 bg-(--primary) text-white dark:text-black/70 rounded-lg font-medium hover:bg-(--primary)/80 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                          >
-                            <span>{i18n(I18nKey.sponsor)}</span>
-                            <Icon name="fa7-solid:arrow-right" class="text-sm" />
-                          </a>
-                        )
-                      }
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          }
-
-          {
-            licenseConfig.enable && (
-              <License
-                title={entry.data.title}
-                id={entry.id}
-                pubDate={entry.data.published}
-                author={entry.data.author}
-                sourceLink={entry.data.sourceLink}
-                licenseName={entry.data.licenseName}
-                licenseUrl={entry.data.licenseUrl}
-                class="mb-6 rounded-xl license-container onload-animation"
-              />
-            )
-          }
         </>
       )}
+
+      {/* 文末协议行：版权 + 许可证 + 转载说明 + 分享/打赏小按钮，替代原分享大卡与协议大卡 */}
+      {
+        showLicenseRow && (
+          <div class="mt-2 pt-4 border-t border-dashed border-(--line-divider) flex items-center flex-wrap gap-y-1.5 gap-x-3 text-sm text-black/60 dark:text-white/60">
+            {licenseConfig.enable && (
+              <span class="flex items-center flex-wrap gap-y-1.5 gap-x-3 min-w-0">
+                <span class="whitespace-nowrap">
+                  © {entry.data.published.getFullYear()} {entry.data.author ||
+                  profileConfig.name}
+                </span>
+                <a
+                  href={licenseHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link text-(--primary) whitespace-nowrap"
+                >
+                  {licenseName}
+                </a>
+                <span class="min-w-0">{i18n(I18nKey.licenseNote)}</span>
+              </span>
+            )}
+            <div class="ml-auto flex items-center gap-2">
+              {siteConfig.post.share && (
+                <SharePoster
+                  client:load
+                  compact={true}
+                  title={entry.data.title}
+                  author={entry.data.author || profileConfig.name}
+                  description={entry.data.description || entry.data.title}
+                  pubDate={formatDateToYYYYMMDD(entry.data.published)}
+                  coverImage={posterCoverUrl}
+                  coverImageSelector={posterCoverSelector}
+                  url={Astro.url.href}
+                  siteTitle={siteConfig.title}
+                  avatar={posterAvatarUrl}
+                  avatarSelector={posterAvatarSelector}
+                />
+              )}
+              {showSponsorButton && (
+                <a
+                  href={url("/sponsor/")}
+                  class="btn-regular rounded-lg h-8 px-3 gap-1.5 text-sm hover:scale-105 active:scale-95 whitespace-nowrap"
+                >
+                  <span>{i18n(I18nKey.sponsor)}</span>
+                  <Icon name="fa7-solid:arrow-right" class="text-xs" />
+                </a>
+              )}
+            </div>
+          </div>
+        )
+      }
     </div>
   </div>
 
@@ -642,30 +526,25 @@ const seriesData = await getSeriesPosts(entry);
 
       // 1. 預設加上 hidden 隱藏，並把時間與閾值綁在 data-* 屬性
       return (
-        <div 
-          id="outdated-card" 
-          class="card-base p-6 mb-4 hidden" 
-          data-date={lastModified.toISOString()} 
+        <div
+          id="outdated-card"
+          class="mb-4 hidden text-sm text-black/60 dark:text-white/60"
+          data-date={lastModified.toISOString()}
           data-threshold={outdatedThreshold}
         >
-          <div class="flex items-center gap-2">
-            <div class="transition h-9 w-9 rounded-lg overflow-hidden relative flex items-center justify-center mr-0">
-              <Icon
-                name="material-symbols:history-rounded"
-                class="text-4xl text-(--primary) transition-transform group-hover:translate-x-0.5 bg-(--enter-btn-bg) p-2 rounded-md"
-              />
-            </div>
-
-            <div class="flex flex-col gap-0.1">
-              <div class="text-[1.0rem] leading-tight text-black/75 dark:text-white/75">
-                {i18n(I18nKey.lastModifiedPrefix)}{dateStr}
-                <span id="days-ago-text" data-template={i18n(I18nKey.lastModifiedDaysAgo)}></span>
-              </div>
-              <p id="outdated-warning" class="text-[0.8rem] leading-tight text-black/75 dark:text-white/75 hidden">
-                {i18n(I18nKey.lastModifiedOutdated)}
-              </p>
-            </div>
+          <div class="flex items-center gap-1.5">
+            <Icon
+              name="material-symbols:history-rounded"
+              class="text-lg text-(--primary) shrink-0"
+            />
+            <span class="min-w-0">
+              {i18n(I18nKey.lastModifiedPrefix)}{dateStr}
+              <span id="days-ago-text" data-template={i18n(I18nKey.lastModifiedDaysAgo)}></span>
+            </span>
           </div>
+          <p id="outdated-warning" class="hidden mt-0.5 pl-6 text-[0.8rem] leading-tight text-black/55 dark:text-white/55">
+            {i18n(I18nKey.lastModifiedOutdated)}
+          </p>
         </div>
       );
     })()
@@ -741,13 +620,21 @@ const seriesData = await getSeriesPosts(entry);
   }
 
   {
-    (siteConfig.post.relatedPosts || siteConfig.post.randomPosts) && (
-      <RecommendedPost
-        relatedPosts={relatedPosts}
-        currentPostId={entry.id}
-        showRelatedPosts={siteConfig.post.relatedPosts}
-        showRandomPosts={siteConfig.post.randomPosts}
-      />
+    siteConfig.post.relatedPosts && (
+      <div data-rp-block class="md:hidden mb-4">
+        <div class="card-base p-5">
+          <div class="flex items-center gap-2 mb-1">
+            <Icon
+              name="material-symbols:signpost"
+              class="text-xl text-(--primary) shrink-0"
+            />
+            <h3 class="font-bold text-lg text-black/75 dark:text-white/75">
+              {i18n(I18nKey.relatedPosts)}
+            </h3>
+          </div>
+          <RelatedPostsList variant="compact" currentId={entry.id} />
+        </div>
+      </div>
     )
   }
 
