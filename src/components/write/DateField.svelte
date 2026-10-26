@@ -133,9 +133,7 @@ const cells = $derived.by(() => {
 	return list;
 });
 
-const monthLabel = $derived(
-	`${view.getFullYear()}年${view.getMonth() + 1}月`,
-);
+const monthLabel = $derived(`${view.getFullYear()}年${view.getMonth() + 1}月`);
 
 function position() {
 	const rect = wrapper?.getBoundingClientRect();

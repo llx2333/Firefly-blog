@@ -54,8 +54,8 @@ const hasAltImages =
 		altBackgroundImages.mobile.length > 0);
 const wallpaperGroups: { set: "main" | "alt"; images: BackgroundImages }[] = [
 	{ set: "main", images: backgroundImages },
-	...(hasAltImages
-		? [{ set: "alt" as const, images: altBackgroundImages! }]
+	...(hasAltImages && altBackgroundImages
+		? [{ set: "alt" as const, images: altBackgroundImages }]
 		: []),
 ];
 // 风格切换是否生效：面板开关打开且备用组真的存在（SSR 传给内联脚本，
