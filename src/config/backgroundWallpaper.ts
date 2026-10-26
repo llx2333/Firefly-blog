@@ -491,11 +491,11 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 		carousel: {
 			// 是否启用壁纸轮播；关闭时保持每次刷新随机显示一张
 			// 批四打开：轮播默认转起来，访客侧菜单也能随时开关
-			enable: true,
+			enable: false,
 			// 轮播切换间隔（毫秒）
 			interval: 5000,
 			// 过渡效果: 'fade' 渐变 | 'zoom' 缩放 | 'slide' 滑动 | 'kenburns' 旋转木马
-			transitionEffect: "zoom",
+			transitionEffect: "fade",
 		},
 		// 水波纹动画效果配置，开启会影响页面性能，增加内存占用，请根据自己的喜好开启
 		waves: {
@@ -544,9 +544,9 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 		// 壁纸透明度
 		opacity: 0.67,
 		// 背景模糊度
-		blur: 2,
+		blur: 3.5,
 		// 卡片透明度，0-1之间，值越小越透明
-		cardOpacity: 0.67,
+		cardOpacity: 0.79,
 	},
 	// 全屏壁纸模式特有配置
 	// 壁纸模糊度(blur)、卡片透明度(cardOpacity)、层级(zIndex) 复用上方 overlay 模式的配置；
