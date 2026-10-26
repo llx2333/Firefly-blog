@@ -8,7 +8,8 @@ export const sponsorConfig: SponsorConfig = {
 	description: "",
 
 	// 打赏用途说明
-	usage: "打赏全凭心意——就像路过菜地顺手浇瓢水，不浇也长得好好的，浇了就多结两个瓜。",
+	usage:
+		"打赏全凭心意——就像路过菜地顺手浇瓢水，不浇也长得好好的，浇了就多结两个瓜。",
 
 	// 是否显示打赏者列表
 	showSponsorsList: true,

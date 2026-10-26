@@ -131,9 +131,7 @@ function makeFirefliesPainter(count: number): Painter {
 		},
 		update(dt, env) {
 			for (const p of flies) {
-				p.x +=
-					Math.cos(env.t * p.wanderA + p.phase) * p.speed * dt +
-					4 * dt;
+				p.x += Math.cos(env.t * p.wanderA + p.phase) * p.speed * dt + 4 * dt;
 				p.y += Math.sin(env.t * p.wanderB + p.phase * 1.7) * p.speed * dt;
 				if (p.x > env.w + 20) p.x = -20;
 				if (p.x < -20) p.x = env.w + 20;
@@ -348,10 +346,7 @@ function makeWindPainter(count: number): Painter {
 		gustBandY = rand(h * 0.1, h * 0.9);
 		gustBandH = rand(30, 90);
 		gustDir = Math.random() < 0.75 ? 1 : -1;
-		const quota = Math.min(
-			12 + Math.floor(rand(0, 8)),
-			count - streaks.length,
-		);
+		const quota = Math.min(12 + Math.floor(rand(0, 8)), count - streaks.length);
 		for (let i = 0; i < quota; i++) {
 			streaks.push({
 				pts: [],
@@ -373,9 +368,9 @@ function makeWindPainter(count: number): Painter {
 		zIndex: 100,
 		init(w, h) {
 			streaks.length = 0;
-		spawnBatch(w, h, true);
-		// 阵风间隔 1.4-3.0s：间隔过长时画面长时间无风痕（视觉验收实测空窗 1-2s 太频繁）
-		gustTimer = rand(1.4, 3.0);
+			spawnBatch(w, h, true);
+			// 阵风间隔 1.4-3.0s：间隔过长时画面长时间无风痕（视觉验收实测空窗 1-2s 太频繁）
+			gustTimer = rand(1.4, 3.0);
 		},
 		update(dt, env) {
 			gustTimer -= dt;
@@ -493,13 +488,17 @@ function makeButterfliesPainter(count: number): Painter {
 					p.dir = Math.cos(p.dir) > 0 ? Math.PI - rand(0, 1) : rand(0, 1);
 				}
 				if (p.y < -30 || p.y > env.h + 30) {
-					p.dir = Math.sin(p.dir) > 0 ? -rand(0.2, 1.2) : Math.PI + rand(0, 1.2);
+					p.dir =
+						Math.sin(p.dir) > 0 ? -rand(0.2, 1.2) : Math.PI + rand(0, 1.2);
 				}
 			}
 		},
 		draw(ctx, env) {
 			for (const p of flies) {
-				const flapS = Math.max(0.18, Math.abs(Math.sin(env.t * p.flapFreq + p.flapPhase)));
+				const flapS = Math.max(
+					0.18,
+					Math.abs(Math.sin(env.t * p.flapFreq + p.flapPhase)),
+				);
 				const s = p.size;
 				const lig = p.lig + env.themeMix * 6 - 3;
 				ctx.save();
@@ -880,12 +879,7 @@ function makeDandelionPainter(count: number): Painter {
 				p.y += p.vy * dt;
 				p.x += (p.drift + gust(env.t) * p.windK) * dt;
 				p.rot += p.spinSpeed * dt;
-				if (
-					p.y < -60 ||
-					p.y > env.h + 60 ||
-					p.x < -60 ||
-					p.x > env.w + 60
-				) {
+				if (p.y < -60 || p.y > env.h + 60 || p.x < -60 || p.x > env.w + 60) {
 					spawn(p, env.w, env.h, true);
 				}
 			}
@@ -946,7 +940,7 @@ function makeDandelionPainter(count: number): Painter {
 				ctx.fillStyle = `rgba(${fr}, ${fg}, ${fb}, ${p.alpha.toFixed(3)})`;
 				for (const tp of tips) {
 					ctx.beginPath();
-						ctx.arc(tp.x, tp.y, 0.9, 0, TAU);
+					ctx.arc(tp.x, tp.y, 0.9, 0, TAU);
 					ctx.fill();
 				}
 				// 细柄 + 纺锤形瘦果
@@ -979,7 +973,14 @@ type TyndallBeam = {
 	phase: number; // 强度呼吸相位
 	breathFreq: number; // 强度呼吸频率
 	alpha: number; // 基础alpha
-	motes: { s: number; u: number; speed: number; tw: number; twFreq: number; r: number }[];
+	motes: {
+		s: number;
+		u: number;
+		speed: number;
+		tw: number;
+		twFreq: number;
+		r: number;
+	}[];
 };
 
 function makeTyndallPainter(count: number): Painter {
@@ -1057,9 +1058,18 @@ function makeTyndallPainter(count: number): Painter {
 				const px = -(y1 - y0) / len; // 轴线的垂直方向
 				const py = (x1 - x0) / len;
 				const grad = ctx.createLinearGradient(x0, y0, x1, y1);
-				grad.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${(a * 1.9).toFixed(4)})`);
-				grad.addColorStop(0.55, `rgba(${cr}, ${cg}, ${cb}, ${(a * 1.2).toFixed(4)})`);
-				grad.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, ${(a * 0.35).toFixed(4)})`);
+				grad.addColorStop(
+					0,
+					`rgba(${cr}, ${cg}, ${cb}, ${(a * 1.9).toFixed(4)})`,
+				);
+				grad.addColorStop(
+					0.55,
+					`rgba(${cr}, ${cg}, ${cb}, ${(a * 1.2).toFixed(4)})`,
+				);
+				grad.addColorStop(
+					1,
+					`rgba(${cr}, ${cg}, ${cb}, ${(a * 0.35).toFixed(4)})`,
+				);
 				// 六层嵌套软边，各层独立缓慢横移
 				for (let i = 0; i < LAYER_W.length; i++) {
 					const jit =
@@ -1082,7 +1092,10 @@ function makeTyndallPainter(count: number): Painter {
 				// 顶部入光口辉光
 				const glowR = wTop * 1.2;
 				const glow = ctx.createRadialGradient(x0, y0, 0, x0, y0, glowR);
-				glow.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${Math.min(a * 1.8, 0.5).toFixed(4)})`);
+				glow.addColorStop(
+					0,
+					`rgba(${cr}, ${cg}, ${cb}, ${Math.min(a * 1.8, 0.5).toFixed(4)})`,
+				);
 				glow.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 0)`);
 				ctx.fillStyle = glow;
 				ctx.beginPath();
@@ -1225,10 +1238,7 @@ export class AmbientEffectsManager {
 					this.startLoop();
 				}
 			};
-			document.addEventListener(
-				"visibilitychange",
-				this.boundHandleVisibility,
-			);
+			document.addEventListener("visibilitychange", this.boundHandleVisibility);
 		}
 	}
 

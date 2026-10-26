@@ -13,6 +13,7 @@ import type {
 	LIGHT_DARK_MODE,
 	WALLPAPER_MODE,
 } from "@/types/config";
+import type { AmbientEffectId } from "@/types/effectsConfig";
 import {
 	ambientEffectsConfig,
 	backgroundWallpaper,
@@ -20,7 +21,6 @@ import {
 	expressiveCodeConfig,
 	siteConfig,
 } from "../config";
-import type { AmbientEffectId } from "@/types/effectsConfig";
 import { isHomePage as checkIsHomePage } from "./layout-utils";
 
 // Declare global functions

@@ -6,6 +6,10 @@ import BannerHomeTextOverlay from "@/components/layout/BannerHomeTextOverlay.ast
 import BannerPostMetaOverlay from "@/components/layout/BannerPostMetaOverlay.astro";
 import { backgroundWallpaper, displaySettingsConfig } from "@/config";
 import type {
+	ThemeWallpaperPair,
+	WallpaperSeason,
+} from "@/types/backgroundWallpaper";
+import type {
 	BannerPostMeta,
 	BannerVisibilityState,
 } from "@/utils/banner-visibility-utils";
@@ -14,7 +18,6 @@ import type {
 	SeasonalBackgroundImages,
 	ThemePairedBackgroundImages,
 } from "@/utils/layout-utils";
-import type { ThemeWallpaperPair, WallpaperSeason } from "@/types/backgroundWallpaper";
 
 interface Props {
 	state: BannerVisibilityState;

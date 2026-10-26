@@ -7,6 +7,7 @@ import {
 } from "@constants/constants";
 import I18nKey from "@i18n/i18nKey";
 import { i18n } from "@i18n/translation";
+import type { WALLPAPER_SET } from "@utils/setting-utils";
 import {
 	getDefaultAmbientEffects,
 	getDefaultBannerCarouselEnabled,
@@ -52,16 +53,15 @@ import {
 } from "@utils/setting-utils";
 import { onMount } from "svelte";
 import Icon from "@/components/common/Icon.svelte";
-import { ambientEffectMeta } from "@/config/effectsConfig";
-import { effectIconSvg } from "./effect-icons";
-import type { AmbientEffectId } from "@/types/effectsConfig";
 import {
 	backgroundWallpaper,
 	displaySettingsConfig,
 	siteConfig,
 } from "@/config";
+import { ambientEffectMeta } from "@/config/effectsConfig";
 import type { FullscreenWallpaperLayout, WALLPAPER_MODE } from "@/types/config";
-import type { WALLPAPER_SET } from "@utils/setting-utils";
+import type { AmbientEffectId } from "@/types/effectsConfig";
+import { effectIconSvg } from "./effect-icons";
 
 type OverlaySliderItem = {
 	key: "opacity" | "blur" | "cardOpacity";
@@ -118,7 +118,7 @@ const defaultAmbientEffects = getDefaultAmbientEffects();
 // 真值源与引擎一致：html 的 dark class；data-theme 存的是 Expressive Code 主题名（one-light 等），不能用
 let resolvedTheme: "dark" | "light" = $state(
 	typeof document !== "undefined" &&
-	document.documentElement.classList.contains("dark")
+		document.documentElement.classList.contains("dark")
 		? "dark"
 		: "light",
 );
@@ -148,9 +148,7 @@ const hasAltWallpaperSet = (() => {
 	if (!alt) return false;
 	const toArr = (v?: string | string[]) =>
 		Array.isArray(v) ? v : v ? [v] : [];
-	return (
-		toArr(alt.desktop).length > 0 || toArr(alt.mobile).length > 0
-	);
+	return toArr(alt.desktop).length > 0 || toArr(alt.mobile).length > 0;
 })();
 const isWallpaperSetSwitchable =
 	displaySettingsConfig.wallpaperSetSwitchable && hasAltWallpaperSet;
@@ -689,10 +687,7 @@ onMount(() => {
 	window.addEventListener("wallpaperSetChange", handleWallpaperSetChange);
 
 	return () => {
-		window.removeEventListener(
-			"wallpaperSetChange",
-			handleWallpaperSetChange,
-		);
+		window.removeEventListener("wallpaperSetChange", handleWallpaperSetChange);
 	};
 });
 

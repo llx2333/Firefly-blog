@@ -82,11 +82,7 @@ export const getAltBackgroundImages = (): BackgroundImages => {
 // 的内联脚本按访客月份过滤；这里只负责把四个季节的池子原样递过去
 export const getSeasonalBackgroundImages = (): SeasonalBackgroundImages => {
 	const bgSrc = backgroundWallpaper.src;
-	if (
-		typeof bgSrc === "object" &&
-		bgSrc !== null &&
-		!Array.isArray(bgSrc)
-	) {
+	if (typeof bgSrc === "object" && bgSrc !== null && !Array.isArray(bgSrc)) {
 		const srcObj = bgSrc as {
 			desktopSeasonal?: Partial<Record<WallpaperSeason, string[]>>;
 			mobileSeasonal?: Partial<Record<WallpaperSeason, string[]>>;
@@ -102,20 +98,21 @@ export const getSeasonalBackgroundImages = (): SeasonalBackgroundImages => {
 // 主题配对池（批七）：读 src.desktopThemePairs / mobileThemePairs。
 // 亮暗判定在客户端做（跟随访客的实时主题，含跟随系统模式的变化），
 // 这里只负责把配对列表原样递过去；未配置返回空数组
-export const getThemePairedBackgroundImages = (): ThemePairedBackgroundImages => {
-	const bgSrc = backgroundWallpaper.src;
-	if (typeof bgSrc === "object" && bgSrc !== null && !Array.isArray(bgSrc)) {
-		const srcObj = bgSrc as {
-			desktopThemePairs?: ThemeWallpaperPair[];
-			mobileThemePairs?: ThemeWallpaperPair[];
-		};
-		return {
-			desktop: srcObj.desktopThemePairs ?? [],
-			mobile: srcObj.mobileThemePairs ?? [],
-		};
-	}
-	return { desktop: [], mobile: [] };
-};
+export const getThemePairedBackgroundImages =
+	(): ThemePairedBackgroundImages => {
+		const bgSrc = backgroundWallpaper.src;
+		if (typeof bgSrc === "object" && bgSrc !== null && !Array.isArray(bgSrc)) {
+			const srcObj = bgSrc as {
+				desktopThemePairs?: ThemeWallpaperPair[];
+				mobileThemePairs?: ThemeWallpaperPair[];
+			};
+			return {
+				desktop: srcObj.desktopThemePairs ?? [],
+				mobile: srcObj.mobileThemePairs ?? [],
+			};
+		}
+		return { desktop: [], mobile: [] };
+	};
 
 // 类型守卫函数
 export const isBannerSrcObject = (

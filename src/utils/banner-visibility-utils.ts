@@ -1,6 +1,9 @@
 import { backgroundWallpaper, displaySettingsConfig } from "@/config";
 import { getImageQuality } from "@/utils/image-utils";
-import { getAltBackgroundImages, getBackgroundImages } from "@/utils/layout-utils";
+import {
+	getAltBackgroundImages,
+	getBackgroundImages,
+} from "@/utils/layout-utils";
 
 /** 文章横幅元信息（从 MainGridLayout 的 Props 提取，供组件复用） */
 export interface BannerPostMeta {
