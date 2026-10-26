@@ -1,49 +1,77 @@
-/* 通用自定义滚动条样式 */
-.custom-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+/* 全站统一滚动条（批十一）：田园灰绿胶囊，悬浮无轨。
+   一层规则覆盖所有滚动容器——页面主条、抽屉/弹层、日历、目录、代码块……
+   不依赖在标记上挂类，新增组件天然继承，不会再有漏掉的原生箭头条。
+
+   Chromium/Safari 走 ::-webkit-scrollbar 完整自绘（自绘渲染天生无上下箭头）；
+   Firefox 不识别 webkit 伪元素，走 @-moz-document 里的标准属性 thin 版本。
+
+   注意不能把 scrollbar-width/scrollbar-color 直接写在公共规则里：
+   Chrome 121+ 标准属性一旦生效就会整体压过 webkit 伪元素样式，
+   拇指会退化成一根若有似无的细条、箭头也回来了（2026-10-26 实测踩坑）。
+
+   .custom-scrollbar 类仍留在标记里（历史挂类，精确性已无必要），
+   样式统一由下面的全局规则供给，不再单独定义，避免两套配色漂移。 */
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
 }
 
-.dark .custom-scrollbar {
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
     background: transparent;
-    border-radius: 3px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.2) 100%);
-    border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    transition: all 0.2s ease;
+*::-webkit-scrollbar-button {
+    display: none;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.3) 100%);
-    border-color: rgba(255, 255, 255, 0.2);
+/* 透明边框 + background-clip 让拇指缩成悬浮胶囊（默认 4px，悬停加粗、按下最饱满）。
+   颜色取中间调灰绿而不是分主题两套：两端胶囊要同口径，而页面级胶囊浮在壁纸上，
+   背景明暗不定——浅色拇指在亮壁纸上几乎消失，深色拇指在暗壁纸上消失（2026-10-26 实测对比），
+   56% 亮度同一个 alpha 在明暗两种背景上都读得出来，同时 alpha 只有 0.42，仍是半透明。 */
+*::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
+    background-color: hsla(150, 18%, 56%, 0.42);
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:active {
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.4) 100%);
+*::-webkit-scrollbar-thumb:hover {
+    border-width: 1px;
+    background-color: hsla(150, 20%, 52%, 0.58);
 }
 
-/* 暗色模式滚动条 - Webkit */
-.dark .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.2) 100%);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+*::-webkit-scrollbar-thumb:active {
+    border-width: 0;
+    background-color: hsla(150, 20%, 50%, 0.72);
 }
 
-.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.3) 100%);
-    border-color: rgba(0, 0, 0, 0.2);
+/* 根滚动条整条去掉（滚动能力不受影响），改由 OverlayScrollbar 组件画一枚悬浮胶囊。
+   原因是经典滚动条那 8px 沟槽只吃得下画布底色：实测把固定壁纸层加宽到 1440px、
+   overflow 改 visible、甚至给 html 设 background-image 都涂不进去，只有纯色背景色能进去
+   （合成器按布局视口裁剪）。只要沟槽还在，壁纸右缘就必然留一条页面底色，
+   暗色下看着就是「滚动条自带一条黑底」。没有沟槽 = 背景真正的透明。
+
+   只能写 scrollbar-width: none——html 上的 ::-webkit-scrollbar{width:0/display:none} 实测无效
+   （Chrome 仍按经典滚动条预留 8px，vBar 一直是 8）。scrollbar-width 会向下继承，
+   所以要在 body 上恢复 auto，否则抽屉、日历、目录这些内层容器的胶囊会一起消失。
+   触屏设备保留原生：移动端 Chrome 本来就是覆盖式滚动条，没有沟槽问题。 */
+@media (pointer: fine) {
+    html {
+        scrollbar-width: none;
+    }
+
+    body {
+        scrollbar-width: auto;
+    }
 }
 
-.dark .custom-scrollbar::-webkit-scrollbar-thumb:active {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.4) 100%);
+/* Firefox 专用：@-moz-document 在 Chromium 里整块不解析，不会反过来压掉 webkit 样式。
+   配色与上方胶囊同口径（中间调灰绿 + 中低 alpha），不分主题两套。 */
+@-moz-document url-prefix() {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: hsla(150, 18%, 56%, 0.42) transparent;
+    }
 }

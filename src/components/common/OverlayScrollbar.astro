@@ -1,0 +1,161 @@
+---
+/**
+ * 页面级悬浮滚动条（批十一）：根滚动条被 custom-scrollbar.css 置零，这里补上可见的那一枚。
+ *
+ * 为什么不用原生：经典滚动条的 8px 沟槽只由画布底色填充，壁纸/图片涂不进去（实测），
+ * 在满屏壁纸的页面上壁纸右缘就永远缺一条——用户看到的就是「滚动条自带一条黑底」。
+ * 去掉沟槽后胶囊直接浮在壁纸/内容上，背景是真的透明。
+ *
+ * 只在精细指针（桌面鼠标/触控板）启用；触屏保留原生覆盖式滚动条。
+ * 交互对齐原生：滚轮/键盘/触控板照常，胶囊可拖拽，命中区比视觉宽度宽 8px。
+ */
+---
+
+<div id="page-scroll-thumb" aria-hidden="true"></div>
+
+<style>
+	#page-scroll-thumb {
+		position: fixed;
+		top: 0;
+		right: 2px;
+		width: 4px;
+		height: 0;
+		border-radius: 9999px;
+		/* 胶囊浮在壁纸上，背景明暗不定：取中间调灰绿（而不是暗色主题用浅色、亮色主题用深色），
+		   同一个 alpha 在深壁纸和亮壁纸上都读得出来；再叠一层薄磨砂 + 内描边保证边界。
+		   实测：浅色胶囊(80% 亮度)在亮壁纸上几乎消失，深色胶囊(32%)在暗壁纸上消失。 */
+		background-color: hsla(150, 18%, 56%, 0.42);
+		-webkit-backdrop-filter: blur(6px) saturate(120%);
+		backdrop-filter: blur(6px) saturate(120%);
+		box-shadow: inset 0 0 0 1px hsla(150, 20%, 90%, 0.16);
+		opacity: 0;
+		pointer-events: none;
+		z-index: 60;
+		touch-action: none;
+		transition:
+			opacity 0.18s ease,
+			background-color 0.18s ease,
+			width 0.18s ease;
+	}
+
+	/* 视觉 4px，命中区左右各放 4px，拖起来不至于点空 */
+	#page-scroll-thumb::before {
+		content: "";
+		position: absolute;
+		inset: 0 -4px;
+	}
+
+	#page-scroll-thumb.is-visible {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	#page-scroll-thumb:hover {
+		background-color: hsla(150, 20%, 52%, 0.58);
+	}
+
+	#page-scroll-thumb.is-dragging {
+		width: 8px;
+		background-color: hsla(150, 20%, 50%, 0.72);
+	}
+</style>
+
+<script is:inline>
+	(function initPageScrollThumb() {
+		var thumb = document.getElementById("page-scroll-thumb");
+		if (!thumb) return;
+		// 触屏/移动端保留原生滚动条（Chrome 移动端是覆盖式，没有沟槽问题）
+		if (!window.matchMedia || !window.matchMedia("(pointer: fine)").matches) return;
+
+		var doc = document.documentElement;
+		var EDGE = 4; // 胶囊与视口上下沿、右沿的留白
+		var MIN_LENGTH = 32;
+		var dragging = false;
+		var grabOffset = 0;
+		var queued = false;
+
+		function metrics() {
+			return {
+				total: doc.scrollHeight,
+				view: doc.clientHeight,
+				max: Math.max(0, doc.scrollHeight - doc.clientHeight),
+			};
+		}
+
+		function trackLength(view) {
+			return Math.max(0, view - EDGE * 2);
+		}
+
+		function thumbLength(m) {
+			if (!m.total) return MIN_LENGTH;
+			return Math.max(MIN_LENGTH, Math.round(trackLength(m.view) * (m.view / m.total)));
+		}
+
+		function render() {
+			var m = metrics();
+			// 页面没得滚（含弹层锁滚动）时彻底收起，避免一枚动不了的胶囊浮在内容上
+			var locked =
+				window.getComputedStyle(doc).overflowY === "hidden" ||
+				window.getComputedStyle(document.body).overflowY === "hidden";
+			if (m.max <= 1 || locked) {
+				thumb.classList.remove("is-visible");
+				return;
+			}
+			var length = thumbLength(m);
+			var travel = trackLength(m.view) - length;
+			var ratio = m.max > 0 ? Math.min(1, Math.max(0, window.scrollY / m.max)) : 0;
+			thumb.style.height = length + "px";
+			thumb.style.transform = "translateY(" + (EDGE + travel * ratio) + "px)";
+			thumb.classList.add("is-visible");
+		}
+
+		function schedule() {
+			if (queued) return;
+			queued = true;
+			window.requestAnimationFrame(function () {
+				queued = false;
+				render();
+			});
+		}
+
+		thumb.addEventListener("pointerdown", function (event) {
+			if (event.button !== 0) return;
+			dragging = true;
+			grabOffset = event.clientY - thumb.getBoundingClientRect().top;
+			// html{scroll-behavior:smooth} 会让拖拽变成拖影，拖拽期间临时改回 auto
+			doc.style.scrollBehavior = "auto";
+			if (thumb.setPointerCapture) thumb.setPointerCapture(event.pointerId);
+			thumb.classList.add("is-dragging");
+			event.preventDefault();
+		});
+
+		thumb.addEventListener("pointermove", function (event) {
+			if (!dragging) return;
+			var m = metrics();
+			var travel = trackLength(m.view) - thumbLength(m);
+			if (travel <= 0) return;
+			var top = Math.min(Math.max(0, event.clientY - grabOffset - EDGE), travel);
+			window.scrollTo({ top: (top / travel) * m.max, behavior: "instant" });
+			schedule();
+		});
+
+		function endDrag() {
+			if (!dragging) return;
+			dragging = false;
+			doc.style.scrollBehavior = "";
+			thumb.classList.remove("is-dragging");
+			schedule();
+		}
+
+		thumb.addEventListener("pointerup", endDrag);
+		thumb.addEventListener("pointercancel", endDrag);
+		thumb.addEventListener("lostpointercapture", endDrag);
+
+		window.addEventListener("scroll", schedule, { passive: true });
+		window.addEventListener("resize", schedule);
+		// 内容高度变化（Swup 换页、图片加载、折叠区展开）时重算长度
+		if (window.ResizeObserver) new ResizeObserver(schedule).observe(document.body);
+		window.addEventListener("load", schedule);
+		schedule();
+	})();
+</script>

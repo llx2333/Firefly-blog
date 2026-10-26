@@ -4,6 +4,7 @@ import La51Analytics from "@components/analytics/La51Analytics.astro";
 import MicrosoftClarity from "@components/analytics/MicrosoftClarity.astro";
 import UmamiAnalytics from "@components/analytics/UmamiAnalytics.astro";
 import EmailDialog from "@components/common/EmailDialog.astro";
+import OverlayScrollbar from "@components/common/OverlayScrollbar.astro";
 import AmbientEffects from "@components/features/AmbientEffects.astro";
 import CodeGroupManager from "@components/features/CodeGroupManager.astro";
 import FancyboxManager from "@components/features/FancyboxManager.astro";
@@ -556,6 +557,8 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
     {shouldShowTopHighlight && <div class="top-gradient-highlight" />}
     <ConfigCarrier />
     <EmailDialog />
+    <!-- 页面级悬浮滚动条：桌面端顶替被置零的根滚动条，没有沟槽、背景真正透明 -->
+    <OverlayScrollbar />
     <MusicManager />
     <slot />
 
