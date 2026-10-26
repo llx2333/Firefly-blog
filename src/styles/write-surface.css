@@ -1,0 +1,10 @@
+/* 写作表单专用字体：ASCII（拉丁字母/数字/括号/星号）走系统等宽，汉字回退站内文楷。
+   原因：LXGW WenKai Mono 是楷体风格，拉丁字形大小不匀（"URL" 三个字母高低胖瘦不一），
+   表单标签里观感杂乱；等宽栈只接管 ASCII，中文观感不变。
+   注意 JetBrains Mono 未列入 fontConfig.selected，运行时没有 --font-jetbrains-mono
+   变量，不能引用；文楷变量务必带字面量兜底，防变量缺失时整个栈失效。 */
+.write-surface {
+	font-family:
+		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+		'Courier New', var(--font-lxgw-wenkai-mono, 'LXGW WenKai Mono'), monospace;
+}

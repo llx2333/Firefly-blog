@@ -875,9 +875,9 @@ async function insertAtCursor(text: string) {
 			{:else}
 				<!-- frontmatter 折叠表单 -->
 				{#if showFrontmatter}
-					<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pb-5 mb-5 border-b border-black/5 dark:border-white/10">
+					<div class="write-surface grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pb-5 mb-5 border-b border-black/5 dark:border-white/10">
 						<div class="md:col-span-2">
-							<label class={labelClass} for="pe-title">标题（title）＊</label>
+							<label class={labelClass} for="pe-title">标题（title） *</label>
 							<input
 								id="pe-title"
 								type="text"
@@ -887,7 +887,7 @@ async function insertAtCursor(text: string) {
 							>
 						</div>
 						<div>
-							<label class={labelClass} for="pe-published">发布日期（published）＊</label>
+							<label class={labelClass} for="pe-published">发布日期（published） *</label>
 							<input id="pe-published" type="date" class={inputClass} bind:value={fm.published}>
 						</div>
 						<div>

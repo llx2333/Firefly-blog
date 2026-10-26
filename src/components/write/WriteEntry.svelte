@@ -135,7 +135,7 @@ function confirmNew() {
 	<!-- body 级 fixed 悬浮窗（表格单元格裁剪教训：浮层一律 fixed + 高 z-index） -->
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
 		<div
-			class="card-base rounded-(--radius-large) w-full px-6 py-6 shadow-xl max-h-[85vh] overflow-y-auto"
+			class="card-base rounded-(--radius-large) w-full px-6 py-6 shadow-xl max-h-[85vh] overflow-y-auto write-surface"
 			style="max-width: 28rem;"
 			role="dialog"
 			aria-modal="true"
@@ -143,7 +143,7 @@ function confirmNew() {
 		>
 			<div class="text-sm font-medium text-90 mb-4">新建文章</div>
 			<div class="mb-3">
-				<label class={labelClass} for="we-seed-title">标题 ＊</label>
+				<label class={labelClass} for="we-seed-title">标题 *</label>
 				<input
 					id="we-seed-title"
 					type="text"
