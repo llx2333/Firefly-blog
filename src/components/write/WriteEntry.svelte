@@ -93,8 +93,8 @@ function confirmNew() {
 	<button
 		type="button"
 		class="btn-plain scale-animation rounded-lg h-11 w-11 active:scale-90"
-		aria-label="写文章"
-		title="写文章"
+		aria-label="New post"
+		title="New post"
 		onclick={() => {
 			title = "";
 			published = todayDateString();
@@ -118,15 +118,14 @@ function confirmNew() {
 			width="20"
 			height="20"
 			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
 			aria-hidden="true"
 			class="text-[1.25rem]"
 		>
-			<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+			<!-- material-symbols:edit-outline-rounded（描边笔，与导航栏同族图标同笔重） -->
+			<path
+				fill="currentColor"
+				d="M5 19h1.425L16.2 9.225L14.775 7.8L5 17.575zm-1 2q-.425 0-.712-.288T3 20v-2.425q0-.4.15-.763t.425-.637L16.2 3.575q.3-.275.663-.425t.762-.15t.775.15t.65.45L20.425 5q.3.275.437.65T21 6.4q0 .4-.138.763t-.437.662l-12.6 12.6q-.275.275-.638.425t-.762.15zM19 6.4L17.6 5zm-3.525 2.125l-.7-.725L16.2 9.225z"
+			></path>
 		</svg>
 	</button>
 {/if}
