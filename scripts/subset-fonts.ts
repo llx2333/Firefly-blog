@@ -5,6 +5,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { glob } from "glob";
 import subsetFont from "subset-font";
 import { fontConfig, fontsList } from "../src/config";
@@ -119,6 +120,39 @@ function extractTextFromHtml(html: string): string {
 }
 
 /**
+ * 去掉注释：中文注释不是渲染文本，收进子集只会白撑字体体积。
+ */
+function stripComments(source: string): string {
+	return source
+		.replace(/\/\*[\s\S]*?\*\//g, " ")
+		.replace(/<!--[\s\S]*?-->/g, " ")
+		.replace(/^[ \t]*\/\/.*$/gm, " ");
+}
+
+/**
+ * 扫描站内组件源码，补齐只在客户端渲染的文案。
+ *
+ * dist HTML 只含 SSR 输出：写作编辑器等 island 的弹窗文案（authed 为 false 时
+ * 根本不渲染）只存在于 JS chunk 里，部署后会因缺字逐字回退系统字体。
+ * 直接扫 JS chunk 不可行——第三方库自带约两万个汉字，子集会膨胀成整字体；
+ * 站内 svelte/astro 源码剥掉注释后只多出几百个真正可能渲染的字。
+ */
+async function collectSourceChars(charSet: Set<string>): Promise<void> {
+	const sourceDir = fileURLToPath(new URL("../src", import.meta.url));
+	const sourceFiles = await glob("**/*.{svelte,astro}", {
+		cwd: sourceDir,
+		nodir: true,
+	});
+
+	for (const relative of sourceFiles) {
+		const source = stripComments(
+			await fs.readFile(path.join(sourceDir, relative), "utf-8"),
+		);
+		for (const c of source) charSet.add(c);
+	}
+}
+
+/**
  * 扫描 dist/ 中所有 HTML 文件，提取页面中实际使用的所有字符
  */
 async function collectChars(): Promise<string> {
@@ -130,6 +164,8 @@ async function collectChars(): Promise<string> {
 		const text = extractTextFromHtml(html);
 		for (const c of text) charSet.add(c);
 	}
+
+	await collectSourceChars(charSet);
 
 	return [...charSet].join("");
 }
