@@ -8,7 +8,7 @@ import I18nKey from "@i18n/i18nKey";
 import { i18n } from "@i18n/translation";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
 import "@/styles/banner-post.css";
-import { getSeriesPosts, getSortedPosts } from "@utils/content-utils";
+import { getSortedPosts } from "@utils/content-utils";
 import {
 	getCategoryUrl,
 	getFileDirFromPath,
@@ -21,7 +21,7 @@ import utc from "dayjs/plugin/utc";
 import CoverImage from "@/components/common/CoverImage.astro";
 import PostMetadata from "@/components/layout/PostMeta.astro";
 import RelatedPostsList from "@/components/misc/RelatedPostsList.astro";
-import SeriesNav from "@/components/misc/SeriesNav.astro";
+import SeriesPostsList from "@/components/misc/SeriesPostsList.astro";
 import SharePoster from "@/components/misc/SharePoster.svelte";
 import PostEditor from "@/components/write/PostEditor.svelte";
 import { coverImageConfig } from "@/config/coverImageConfig";
@@ -200,7 +200,9 @@ const jsonLd = {
 	],
 };
 
-const seriesData = await getSeriesPosts(entry);
+// 系列块两端共用（侧栏 widget / 移动端文末块），数据由 SeriesPostsList 客户端计算；
+// 这里只在 SSR 阶段判断有无系列，避免无系列文章出现骨架闪烁
+const hasSeries = entry.data.series.trim() !== "";
 // 文末协议行：单文章许可证优先，回退站点默认（原 License.astro 的解析规则）
 const licenseName = entry.data.licenseName || licenseConfig.name;
 const licenseHref = entry.data.licenseName
@@ -421,16 +423,6 @@ const licenseHref = entry.data.licenseName
       }
 
       {
-        seriesData && (
-          <SeriesNav
-            seriesName={seriesData.seriesName}
-            posts={seriesData.posts}
-            currentPostId={entry.id}
-          />
-        )
-      }
-
-      {
         showPostCover && !usePostCoverOverlay && processedImage && (
           <div class="mt-4">
             <CoverImage
@@ -615,6 +607,26 @@ const licenseHref = entry.data.licenseName
         />
       </div>
     </a>
+      </div>
+    )
+  }
+
+  {
+    // 移动端「所属系列」块（桌面走右侧栏 widget，两端同一客户端列表组件）
+    hasSeries && (
+      <div data-sp-block class="md:hidden mb-4">
+        <div class="card-base p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <Icon
+              name="material-symbols:format-list-bulleted"
+              class="text-xl text-(--primary) shrink-0"
+            />
+            <h3 class="font-bold text-lg text-black/75 dark:text-white/75">
+              {i18n(I18nKey.seriesPartOf)}
+            </h3>
+          </div>
+          <SeriesPostsList variant="compact" currentId={entry.id} />
+        </div>
       </div>
     )
   }

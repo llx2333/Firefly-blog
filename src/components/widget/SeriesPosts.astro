@@ -1,0 +1,31 @@
+---
+/**
+ * 侧栏「所属系列」组件（只在文章详情页显示）。
+ * 列表由客户端按当前文章计算（数据源 /api/allPostMeta.json，见 SeriesPostsList.astro）；
+ * 当前文章不属于任何系列时整卡移除。
+ */
+import WidgetLayout from "@/components/common/WidgetLayout.astro";
+import SeriesPostsList from "@/components/misc/SeriesPostsList.astro";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
+import type { WidgetComponentConfig } from "@/types/config";
+
+interface Props {
+	class?: string;
+	style?: string;
+	widgetConfig?: WidgetComponentConfig;
+}
+
+const { class: className, style, widgetConfig } = Astro.props;
+const showTitle = widgetConfig?.showTitle !== false;
+---
+
+<WidgetLayout
+  name={i18n(I18nKey.seriesPartOf)}
+  showTitle={showTitle}
+  id="sidebar-series"
+  class={className}
+  style={style}
+>
+  <SeriesPostsList variant="widget" />
+</WidgetLayout>

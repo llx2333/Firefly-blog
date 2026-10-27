@@ -12,6 +12,9 @@ import { todayDateString } from "@/utils/write/slug";
 import DateField from "./DateField.svelte";
 
 let authed = $state(false);
+/** 本浏览器存着 token（哪怕还没验证通过）：入口照样渲染，点进去 /write 里有登录卡可重新验证。
+ *  只有真·访客（无 token）看不到任何编辑入口。 */
+let hasToken = $state(false);
 let open = $state(false);
 let title = $state("");
 let published = $state(todayDateString());
@@ -35,7 +38,9 @@ const inputClass =
 const labelClass = "block text-xs font-medium text-50 mb-1";
 
 $effect(() => {
-	void ensureVerified(resolveToken()).then((ok) => {
+	const saved = resolveToken();
+	hasToken = saved !== "";
+	void ensureVerified(saved).then((ok) => {
 		authed = ok;
 	});
 });
@@ -90,7 +95,7 @@ function confirmNew() {
 }
 </script>
 
-{#if authed}
+{#if authed || hasToken}
 	<button
 		type="button"
 		class="btn-plain scale-animation rounded-lg h-11 w-11 active:scale-90"
@@ -133,7 +138,14 @@ function confirmNew() {
 
 {#if open}
 	<!-- body 级 fixed 悬浮窗（表格单元格裁剪教训：浮层一律 fixed + 高 z-index） -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+		role="presentation"
+		onclick={(event) => {
+			// 只有点在遮罩本身（不是弹窗内容冒泡上来）才关闭
+			if (event.target === event.currentTarget) close();
+		}}
+	>
 		<div
 			class="write-dialog write-surface rounded-(--radius-large) w-full px-6 py-6 shadow-xl max-h-[85vh] overflow-y-auto custom-scrollbar"
 			style="max-width: 28rem;"

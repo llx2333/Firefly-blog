@@ -94,6 +94,8 @@ const sanitizeConfig: sanitizeHtml.Options = {
 let mode = $state<Mode>("idle");
 /** 编辑入口门控：token 验证通过才渲染「编辑」按钮（访客不可见） */
 let authed = $state(false);
+/** 有 token 但验证没过：入口降级成「登录后编辑」，点击直接开登录卡重试 */
+let staleToken = $state(false);
 /** 待机按钮所在槽位是否为封面 overlay（决定按钮配色） */
 let coverSlot = $state(false);
 /** 待机按钮行：挂载后 portal 进 #post-edit-slot（元信息行右端） */
@@ -276,20 +278,28 @@ $effect(() => {
 	return () => window.removeEventListener("beforeunload", handler);
 });
 
-// 入口门控：token（自身或 /admin 复用）经 GET /user 静默验证后才显示「编辑」
+// 入口门控：token（自身或 /admin 复用）经 GET /user 静默验证后才显示「编辑」。
+// 有 token 但验证没过（过期 / 401 / 断网）时仍渲染入口，文案降级成「登录后编辑」——
+// 否则作者一次 401 就永久失去入口，看起来就是「文章也编辑不了」。
 $effect(() => {
 	const saved = resolveToken();
+	if (!saved) {
+		staleToken = false;
+		return;
+	}
 	// 认证缓存命中（6h 内、token 未变）→ 跳过 GET /user，直接摆出入口并预取正文
 	const cachedLogin = readVerifiedLogin(saved);
 	if (cachedLogin) {
 		token = saved;
 		userLogin = cachedLogin;
 		authed = true;
+		staleToken = false;
 		primeRemote(saved);
 		return;
 	}
 	void ensureVerified(saved).then((ok) => {
 		authed = ok;
+		staleToken = !ok;
 		if (!ok) return;
 		userLogin = readVerifiedLogin(saved);
 		primeRemote(saved);
@@ -299,7 +309,7 @@ $effect(() => {
 // 待机按钮 portal：进元信息行右端槽位（[...slug].astro 渲染），避免独占一行；
 // 无槽位的页面形态（overlay 开启但无封面图等）保持卡片顶部原位兜底
 $effect(() => {
-	if (mode !== "idle" || !authed || !idleRow) return;
+	if (mode !== "idle" || (!authed && !staleToken) || !idleRow) return;
 	const slot = document.getElementById("post-edit-slot");
 	if (!slot) return;
 	coverSlot = slot.dataset.variant === "cover";
@@ -313,6 +323,13 @@ function beginEdit() {
 	reloginHint = "";
 	const saved = resolveToken();
 	if (!saved) {
+		mode = "login";
+		return;
+	}
+	if (staleToken) {
+		// 存着 token 但没验证过：开登录卡并带上它，一次点击就能重试（也允许换新 token）
+		tokenInput = saved;
+		reloginHint = "编辑登录已验证失效，请重新验证或换一个 token";
 		mode = "login";
 		return;
 	}
@@ -358,7 +375,7 @@ async function verifyAndLoad(value: string) {
 		await loadRemote();
 	} catch (error) {
 		token = "";
-		persistToken("");
+		// 不 persistToken("")：手输 token 打错不该顺手抹掉原来存着的那个（入口会就此消失）
 		userLogin = null;
 		loginError = describeGitHubError(error);
 		if (!editorReady) mode = "login";
@@ -533,12 +550,14 @@ function exitEdit() {
 	mode = "idle";
 }
 
-/** 401：清 token 但保留编辑内容，提示重新验证 */
+/** 401：只清 6h 验证缓存并留在登录卡里重新验证；不抹掉 localStorage 里的 token，
+ *  否则入口永久消失（批13「文章也编辑不了」）。编辑内容保留在内存里。 */
 function kickToRelogin() {
 	token = "";
-	persistToken("");
 	clearVerified();
+	staleToken = true;
 	userLogin = null;
+	if (!tokenInput) tokenInput = resolveToken();
 	reloginHint = "登录已失效，编辑内容已保留";
 	showToast("登录已失效，编辑内容已保留");
 }
@@ -708,14 +727,15 @@ async function insertAtCursor(text: string) {
 </script>
 
 <div class="w-full" bind:this={rootEl}>
-	{#if mode === "idle" && authed}
-		<!-- 待机：portal 进元信息行右端（无槽位时退回卡片顶部），认证后才可见 -->
+	{#if mode === "idle" && (authed || staleToken)}
+		<!-- 待机：portal 进元信息行右端（无槽位时退回卡片顶部）。
+			访客（无 token）不渲染；有 token 但验证没过时降级为「登录后编辑」 -->
 		<div bind:this={idleRow} class="relative z-10 inline-flex">
 			<button
 				type="button"
 				class={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${coverSlot ? "text-white/90 hover:text-white" : "text-50 hover:text-(--primary) hover:bg-black/5 dark:hover:bg-white/10"}`}
 				onclick={beginEdit}
-				title="用 GitHub token 原位编辑这篇文章"
+				title={authed ? "用 GitHub token 原位编辑这篇文章" : "token 验证未通过：点击重新验证"}
 			>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
@@ -731,7 +751,7 @@ async function insertAtCursor(text: string) {
 				>
 					<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
 				</svg>
-				<span>编辑</span>
+				<span>{authed ? "编辑" : "登录后编辑"}</span>
 			</button>
 		</div>
 	{:else if mode === "login"}

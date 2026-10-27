@@ -1,0 +1,300 @@
+---
+/**
+ * 系列文章列表（客户端渲染，侧栏 widget 与移动端文末块共用）。
+ *
+ * 与 RelatedPostsList 同构：右侧栏在 #right-sidebar-static 内不是 swup 容器，
+ * 站内导航后 DOM 不被替换，列表必须按「当前 URL → 当前文章 → 系列名」在客户端重算；
+ * 当前文章不属于任何系列时整块移除（侧栏 widget 卡 / 移动端块一起消失）。
+ *
+ * 数据源 = /api/allPostMeta.json（共享 window.__allPostMetaCache 缓存）。
+ * 排序复刻服务端 sortBySeriesOrder：seriesOrder 升序（未设置排后）→ 发布时间降序 → 标题。
+ * 草稿不过滤：生产构建本就不含草稿，dev 下作者看草稿时列表也应完整（与旧 SeriesNav 一致）。
+ */
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
+import { url } from "@/utils/url-utils";
+
+interface Props {
+	variant?: "widget" | "compact";
+	/** 当前文章 id（内容层 id，不含扩展名）；解析 URL 失败时的兜底 */
+	currentId?: string;
+	class?: string;
+}
+
+const { variant = "widget", currentId = "", class: className } = Astro.props;
+const apiUrl = url("/api/allPostMeta.json");
+const labelCurrent = i18n(I18nKey.seriesThisArticle);
+---
+
+<div
+	class:list={["sp-root", `sp-${variant}`, className]}
+	data-current-id={currentId}
+	data-api-url={apiUrl}
+	data-label-current={labelCurrent}
+>
+	<div class="sp-skeleton" aria-hidden="true">
+		{[0, 1, 2].map(() => <div class="sp-skeleton-row"><div class="sp-skeleton-line"></div></div>)}
+	</div>
+</div>
+
+<script>
+	interface SpPostMeta {
+		id: string;
+		title: string;
+		published: number;
+		draft?: boolean;
+		series?: string;
+		seriesOrder?: number | null;
+	}
+
+	interface SpPicked {
+		name: string;
+		posts: SpPostMeta[];
+	}
+
+	async function spLoadMeta(apiUrl: string): Promise<SpPostMeta[]> {
+		const w = window as any;
+		if (w.__allPostMetaCache) return w.__allPostMetaCache as SpPostMeta[];
+		const res = await fetch(apiUrl);
+		if (!res.ok) throw new Error(`allPostMeta ${res.status}`);
+		const data = (await res.json()) as SpPostMeta[];
+		w.__allPostMetaCache = data;
+		return data;
+	}
+
+	/** 从 location.pathname 解析当前文章 id；解析不出返回空串 */
+	function spCurrentIdFromLocation(): string {
+		const m = location.pathname.replace(/\/+$/, "").match(/\/posts\/(.+)$/);
+		return m ? m[1] : "";
+	}
+
+	/** 复刻服务端 sortBySeriesOrder：序号升序（未设置排后）→ 时间降序 → 标题 */
+	function spCompare(a: SpPostMeta, b: SpPostMeta): number {
+		const ao = a.seriesOrder ?? null;
+		const bo = b.seriesOrder ?? null;
+		if (ao !== null && bo !== null && ao !== bo) return ao - bo;
+		if (ao !== null && bo === null) return -1;
+		if (ao === null && bo !== null) return 1;
+		return (
+			b.published - a.published || a.title.localeCompare(b.title)
+		);
+	}
+
+	/** 当前文章的系列列表；不属于系列返回 null */
+	function spPick(all: SpPostMeta[], currentId: string): SpPicked | null {
+		const cur = all.find((p) => p.id === currentId);
+		const name = (cur?.series ?? "").trim();
+		if (!cur || !name) return null;
+		const posts = all
+			.filter((p) => (p.series ?? "").trim() === name)
+			.sort(spCompare);
+		return posts.length > 1 ? { name, posts } : null;
+	}
+
+	function spRenderRoot(root: HTMLElement, picked: SpPicked): boolean {
+		// URL 解析优先（swup 切页后 data 属性还是旧页的）；解析不出回退 SSR 兜底值
+		const currentId = spCurrentIdFromLocation() || root.dataset.currentId || "";
+		const base =
+			root.dataset.apiUrl?.replace(/\/api\/allPostMeta\.json$/, "") ?? "";
+		const labelCurrent = root.dataset.labelCurrent ?? "";
+
+		const frag = document.createDocumentFragment();
+
+		const head = document.createElement("div");
+		head.className = "sp-series-head";
+		const nameEl = document.createElement("span");
+		nameEl.className = "sp-series-name";
+		nameEl.textContent = picked.name;
+		const countEl = document.createElement("span");
+		countEl.className = "sp-series-count";
+		countEl.textContent = String(picked.posts.length);
+		head.append(nameEl, countEl);
+		frag.appendChild(head);
+
+		picked.posts.forEach((post, idx) => {
+			const isCurrent = post.id === currentId;
+			const row = document.createElement(isCurrent ? "div" : "a");
+			if (!isCurrent) (row as HTMLAnchorElement).href = `${base}/posts/${post.id}/`;
+			row.className =
+				"sp-item" +
+				(isCurrent ? " sp-item-current" : "") +
+				(idx < picked.posts.length - 1 ? " sp-item-divided" : "");
+			row.title = post.title;
+			if (isCurrent) row.setAttribute("aria-current", "page");
+
+			const num = document.createElement("span");
+			num.className = "sp-num";
+			num.textContent = String(idx + 1);
+
+			const title = document.createElement("span");
+			title.className = "sp-title";
+			title.textContent = post.title;
+
+			row.append(num, title);
+			if (isCurrent && labelCurrent) {
+				const badge = document.createElement("span");
+				badge.className = "sp-badge shrink-0";
+				badge.textContent = labelCurrent;
+				row.appendChild(badge);
+			}
+			frag.appendChild(row);
+		});
+
+		root.replaceChildren(frag);
+		return true;
+	}
+
+	function spRemoveBlock(root: HTMLElement) {
+		// 侧栏实例连带 widget 卡移除；移动端实例连带外层卡片移除
+		root.closest("widget-layout")?.remove();
+		root.closest("[data-sp-block]")?.remove();
+		root.remove();
+	}
+
+	async function spRenderAll() {
+		const roots = Array.from(document.querySelectorAll<HTMLElement>(".sp-root"));
+		if (roots.length === 0) return;
+		let all: SpPostMeta[] | null = null;
+		try {
+			all = await spLoadMeta(roots[0].dataset.apiUrl ?? "");
+		} catch {
+			roots.forEach(spRemoveBlock);
+			return;
+		}
+		for (const root of roots) {
+			try {
+				const currentId =
+					spCurrentIdFromLocation() || root.dataset.currentId || "";
+				const picked = spPick(all, currentId);
+				if (!picked) {
+					spRemoveBlock(root);
+					continue;
+				}
+				spRenderRoot(root, picked);
+			} catch {
+				spRemoveBlock(root);
+			}
+		}
+	}
+
+	if (!(window as any).__spInit) {
+		(window as any).__spInit = true;
+		const kick = () => setTimeout(spRenderAll, 50);
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", kick);
+		} else {
+			kick();
+		}
+		document.addEventListener("swup:contentReplaced", kick);
+		document.addEventListener("astro:page-load", kick);
+		window.addEventListener("popstate", () => setTimeout(spRenderAll, 150));
+	}
+</script>
+
+<style is:global>
+	/* 骨架 */
+	.sp-skeleton-row {
+		padding: 0.5rem 0;
+	}
+	.sp-skeleton-line {
+		height: 0.875rem;
+		border-radius: 0.375rem;
+		background: var(--btn-regular-bg);
+		animation: sp-pulse 1.5s ease-in-out infinite;
+	}
+	@keyframes sp-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.45;
+		}
+	}
+
+	/* 系列名 + 篇数：列表上方的轻量头 */
+	.sp-series-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0 0.25rem 0.4rem;
+	}
+	.sp-series-name {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: rgb(0 0 0 / 0.55);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.sp-series-count {
+		flex-shrink: 0;
+		font-size: 0.625rem;
+		line-height: 1;
+		padding: 0.2rem 0.45rem;
+		border-radius: 999px;
+		background: var(--btn-regular-bg);
+		color: var(--btn-content);
+	}
+	.dark .sp-series-name {
+		color: rgb(255 255 255 / 0.55);
+	}
+
+	/* 条目：序号方块 + 标题 +（当前项）本文徽章 */
+	.sp-root .sp-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.45rem 0.25rem;
+		border-radius: 0.5rem;
+		min-width: 0;
+		transition: background-color 0.15s;
+	}
+	.sp-root a.sp-item:hover {
+		background: var(--btn-regular-bg);
+	}
+	.sp-root.sp-compact .sp-item {
+		padding: 0.6rem 0.25rem;
+	}
+	.sp-item-divided {
+		border-bottom: 1px dashed var(--line-divider);
+	}
+	.sp-num {
+		flex-shrink: 0;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 0.375rem;
+		background: var(--enter-btn-bg);
+		color: var(--primary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.6875rem;
+		font-weight: 700;
+	}
+	.sp-title {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: rgb(0 0 0 / 0.75);
+		transition: color 0.15s;
+	}
+	.sp-root a.sp-item:hover .sp-title {
+		color: var(--primary);
+	}
+	.dark .sp-title {
+		color: rgb(255 255 255 / 0.75);
+	}
+	.sp-badge {
+		font-size: 0.625rem;
+		line-height: 1;
+		padding: 0.2rem 0.35rem;
+		border-radius: 0.25rem;
+		background: var(--enter-btn-bg);
+		color: var(--primary);
+	}
+</style>

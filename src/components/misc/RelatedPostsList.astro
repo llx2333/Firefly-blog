@@ -68,9 +68,9 @@ const apiUrl = url("/api/allPostMeta.json");
 	function rpPick(all: RpPostMeta[], currentId: string): RpPostMeta[] {
 		const cur = all.find((p) => p.id === currentId);
 		if (!cur) return [];
-		const cands = all.filter(
-			(p) => p.id !== currentId && !p.password && !p.draft,
-		);
+		// 草稿不过滤：生产构建本就不含草稿，dev 下作者看草稿时列表也应完整
+		// （与旧推荐/日历口径一致；密码文章仍排除）
+		const cands = all.filter((p) => p.id !== currentId && !p.password);
 		const curTags = new Set((cur.tags ?? []).map((t) => t.toLowerCase()));
 		const overlap = (p: RpPostMeta) =>
 			(p.tags ?? []).filter((t) => curTags.has(t.toLowerCase())).length;
@@ -224,6 +224,10 @@ const apiUrl = url("/api/allPostMeta.json");
 	.rp-cat {
 		font-size: 0.6875rem;
 		color: rgb(0 0 0 / 0.35);
+	}
+	/* 移动端窄屏：分类小字会与常驻浮动按钮打架，隐藏留出呼吸 */
+	.rp-root.rp-compact .rp-cat {
+		display: none;
 	}
 	.dark .rp-cat {
 		color: rgb(255 255 255 / 0.35);
