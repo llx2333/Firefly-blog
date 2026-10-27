@@ -369,9 +369,6 @@ export const ru: Translation = {
 	// Черновик
 	[Key.draft]: "Черновик",
 
-	// Похожие статьи
-	[Key.relatedPosts]: "Похожие статьи",
-
 	// Серия статей
 	[Key.series]: "Серии",
 	[Key.seriesPartOf]: "Часть серии",

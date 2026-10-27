@@ -40,6 +40,23 @@
       max-width: var(--grid-sidebar-width);
     }
 
+    /* 侧栏自成滚动区（批14）：悬停侧栏时滚轮滚侧栏本身，悬停正文仍滚页面。
+       必须 align-self:start —— grid item 被拉伸到整行高时 sticky 无处可吸。
+       overflow-x:clip 只裁横轴，纵轴留给侧栏；overscroll 用默认 auto，
+       滚到侧栏头/尾后继续滚会自然接力到页面，不会把用户困在侧栏里。 */
+    #main-grid #left-sidebar,
+    #main-grid #right-sidebar {
+      position: sticky;
+      top: var(--sidebar-top, 1rem);
+      align-self: start;
+      max-height: calc(100svh - var(--sidebar-top, 1rem) - 1rem);
+      overflow-x: clip;
+      overflow-y: auto;
+      /* 预留滚动条宽度：有/无溢出时卡片宽度一致，不抖动 */
+      scrollbar-gutter: stable;
+      transition: top 0.2s ease-out;
+    }
+
     /* 侧栏已启用但本页型/断点无侧栏列时，内容栏按比例收窄并居中。
        width:100% 不可省（否则 auto 外边距取消 stretch）；body:not(.immersive-reading) 用于避开沉浸阅读的 flex 列 */
     body:not(.immersive-reading) #main-grid > #content-column {
@@ -168,6 +185,30 @@
 }
 
 @layer utilities {
+  /* 侧栏滚动区顶部偏移（批14）：与下面 #*-sidebar-sticky 的原规则同口径，
+     随导航栏模式切换（默认 1rem、sticky/dynamic 导航栏 5.5rem、动态栏隐藏 1rem） */
+  :root {
+    --sidebar-top: 1rem;
+  }
+  body.sticky-navbar,
+  body.dynamic-navbar {
+    --sidebar-top: 5.5rem;
+  }
+  body.dynamic-navbar.dynamic-navbar-hidden {
+    --sidebar-top: 1rem;
+  }
+
+  /* 桌面端侧栏本身已是独立滚动容器（见 @layer components 的 #main-grid #*-sidebar），
+     内层再吸顶会在容器里把下半截钉住裁掉、还多出 top 偏移的空白，故取消内层 sticky。
+     必须写在 utilities 层：内层的 .sticky 是 Tailwind 工具类（utilities 层），
+     放 components 层即使选择器权重更高也会被层序压过。 */
+  @media (min-width: 768px) {
+    #main-grid #left-sidebar-sticky,
+    #main-grid #right-sidebar-sticky {
+      position: static;
+    }
+  }
+
   /* 侧边栏 sticky：#main-grid transform 已删除，无需 --banner-height-extend 补偿；sticky-navbar 统一 5.5rem */
   body.sticky-navbar #left-sidebar-sticky,
   body.sticky-navbar #right-sidebar-sticky {

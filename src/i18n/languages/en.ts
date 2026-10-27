@@ -368,9 +368,6 @@ export const en: Translation = {
 	// Draft
 	[Key.draft]: "Draft",
 
-	// Related Posts
-	[Key.relatedPosts]: "Related Posts",
-
 	// Article Series
 	[Key.series]: "Series",
 	[Key.seriesPartOf]: "Part of series",

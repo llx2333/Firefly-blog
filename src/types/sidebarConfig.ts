@@ -6,7 +6,6 @@ export type WidgetComponentType =
 	| "tags"
 	| "sidebarToc"
 	| "seriesPosts"
-	| "relatedPosts"
 	| "advertisement"
 	| "stats"
 	| "calendar"

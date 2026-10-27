@@ -20,7 +20,6 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import CoverImage from "@/components/common/CoverImage.astro";
 import PostMetadata from "@/components/layout/PostMeta.astro";
-import RelatedPostsList from "@/components/misc/RelatedPostsList.astro";
 import SeriesPostsList from "@/components/misc/SeriesPostsList.astro";
 import SharePoster from "@/components/misc/SharePoster.svelte";
 import PostEditor from "@/components/write/PostEditor.svelte";
@@ -626,25 +625,6 @@ const licenseHref = entry.data.licenseName
             </h3>
           </div>
           <SeriesPostsList variant="compact" currentId={entry.id} />
-        </div>
-      </div>
-    )
-  }
-
-  {
-    siteConfig.post.relatedPosts && (
-      <div data-rp-block class="md:hidden mb-4">
-        <div class="card-base p-5">
-          <div class="flex items-center gap-2 mb-1">
-            <Icon
-              name="material-symbols:signpost"
-              class="text-xl text-(--primary) shrink-0"
-            />
-            <h3 class="font-bold text-lg text-black/75 dark:text-white/75">
-              {i18n(I18nKey.relatedPosts)}
-            </h3>
-          </div>
-          <RelatedPostsList variant="compact" currentId={entry.id} />
         </div>
       </div>
     )

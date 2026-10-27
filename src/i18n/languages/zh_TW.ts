@@ -360,9 +360,6 @@ export const zh_TW: Translation = {
 	// 草稿
 	[Key.draft]: "草稿",
 
-	// 相關文章推薦
-	[Key.relatedPosts]: "相關文章",
-
 	// 文章系列
 	[Key.series]: "系列",
 	[Key.seriesPartOf]: "所屬系列",

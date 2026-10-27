@@ -366,9 +366,6 @@ export const ko: Translation = {
 	// Draft
 	[Key.draft]: "초안",
 
-	// Related Posts
-	[Key.relatedPosts]: "관련 게시글",
-
 	// 글 시리즈
 	[Key.series]: "시리즈",
 	[Key.seriesPartOf]: "시리즈의 일부",

@@ -11,9 +11,6 @@ export async function GET(): Promise<Response> {
 			published: post.data.published.getTime(),
 			category: post.data.category || "",
 			password: !!post.data.password,
-			// 相关文章客户端计算用（RelatedPostsList）：标签重合数 + 草稿过滤
-			tags: post.data.tags.map((t) => t.trim()).filter(Boolean),
-			draft: !!post.data.draft,
 			// 系列客户端渲染用（SeriesPostsList）：系列名 + 排序序号
 			series: post.data.series.trim(),
 			seriesOrder: post.data.seriesOrder ?? null,

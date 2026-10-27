@@ -164,8 +164,6 @@ export type SiteConfig = {
 		share: boolean;
 		// 是否显示上一篇/下一篇文章导航
 		postNavigation: boolean;
-		// 是否显示相关文章推荐
-		relatedPosts: boolean;
 		// OpenGraph图片功能
 		generateOgImages: boolean;
 		// 沉浸阅读配置

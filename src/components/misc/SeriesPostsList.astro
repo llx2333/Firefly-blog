@@ -2,8 +2,8 @@
 /**
  * 系列文章列表（客户端渲染，侧栏 widget 与移动端文末块共用）。
  *
- * 与 RelatedPostsList 同构：右侧栏在 #right-sidebar-static 内不是 swup 容器，
- * 站内导航后 DOM 不被替换，列表必须按「当前 URL → 当前文章 → 系列名」在客户端重算；
+ * 列表全在客户端算：右侧栏在 #right-sidebar-static 内不是 swup 容器，
+ * 站内导航后 DOM 不被替换，必须按「当前 URL → 当前文章 → 系列名」重算；
  * 当前文章不属于任何系列时整块移除（侧栏 widget 卡 / 移动端块一起消失）。
  *
  * 数据源 = /api/allPostMeta.json（共享 window.__allPostMetaCache 缓存）。
@@ -42,7 +42,6 @@ const labelCurrent = i18n(I18nKey.seriesThisArticle);
 		id: string;
 		title: string;
 		published: number;
-		draft?: boolean;
 		series?: string;
 		seriesOrder?: number | null;
 	}

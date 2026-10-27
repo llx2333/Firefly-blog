@@ -365,9 +365,6 @@ export const ja: Translation = {
 	// 下書き
 	[Key.draft]: "下書き",
 
-	// 関連記事
-	[Key.relatedPosts]: "関連記事",
-
 	// 記事シリーズ
 	[Key.series]: "シリーズ",
 	[Key.seriesPartOf]: "シリーズの一部",

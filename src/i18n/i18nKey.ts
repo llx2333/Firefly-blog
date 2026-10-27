@@ -353,8 +353,7 @@ enum I18nKey {
 	// 草稿
 	draft = "draft",
 
-	// 相关文章推荐
-	relatedPosts = "relatedPosts",
+	// 文末协议行备注
 	licenseNote = "licenseNote",
 
 	// 文章系列

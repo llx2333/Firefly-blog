@@ -358,9 +358,6 @@ export const zh_CN: Translation = {
 	// 草稿
 	[Key.draft]: "草稿",
 
-	// 相关文章推荐
-	[Key.relatedPosts]: "相关文章",
-
 	// 文章系列
 	[Key.series]: "系列",
 	[Key.seriesPartOf]: "所属系列",
