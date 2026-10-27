@@ -52,9 +52,6 @@
       max-height: calc(100svh - var(--sidebar-top, 1rem) - 1rem);
       overflow-x: clip;
       overflow-y: auto;
-      /* 预留滚动条宽度：有/无溢出时卡片宽度一致，不抖动 */
-      scrollbar-gutter: stable;
-      transition: top 0.2s ease-out;
     }
 
     /* 侧栏已启用但本页型/断点无侧栏列时，内容栏按比例收窄并居中。
@@ -286,9 +283,58 @@
   }
 }
 
-/* 右侧栏平滑过渡（从 MainGridLayout 的内联 <style is:global> 迁出） */
+/* 右侧栏平滑过渡（从 MainGridLayout 的内联 <style is:global> 迁出）。
+   top/max-height 必须在这里补：本文件 57 行分层里的 transition 是无层规则的
+   低优先级，写在那儿等于没写——导航栏隐藏时 --sidebar-top 5.5rem→1rem
+   会变成单帧 72px 瞬跳（批14b 实测）。两者联动过渡，top+max-height 之和恒定。 */
 #right-sidebar {
   transition:
     opacity 0.35s ease-in-out,
-    transform 0.35s ease-in-out;
+    transform 0.35s ease-in-out,
+    top 0.2s ease-out,
+    max-height 0.2s ease-out;
+}
+
+#main-grid #left-sidebar {
+  transition:
+    top 0.2s ease-out,
+    max-height 0.2s ease-out;
+}
+
+/* 批14b：侧栏滚动区收口。这些规则必须无层——custom-scrollbar.css 的
+   `*::-webkit-scrollbar`、toc.css 的 `.toc-scroll-container`、SidebarTOC 的
+   scoped 样式都是无层的，分层规则再高特异性也压不过。 */
+
+/* 1) 侧栏自身滚动条隐藏（滚动照旧可用）。整页已有 #page-scroll-thumb 胶囊条，
+      侧栏再挂一条 8px 原生条重复且突兀。scrollbar-width 会向下继承，所以下一段
+      把侧栏内真正的内层滚动区（日历的当月文章列表）单独恢复，与
+      custom-scrollbar.css 在 body 上恢复 auto 是同一手法。 */
+#main-grid #left-sidebar,
+#main-grid #right-sidebar {
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+}
+
+#main-grid #left-sidebar::-webkit-scrollbar,
+#main-grid #right-sidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+#main-grid #left-sidebar .custom-scrollbar,
+#main-grid #right-sidebar .custom-scrollbar {
+  scrollbar-width: auto;
+}
+
+/* 2) 目录不再自己滚：整列是唯一滚动区。
+      原来 .toc-scroll-container 有 max-height + overflow-y:auto + overscroll-behavior:contain，
+      造成「悬停目录时滚的是目录、滚正文时目录又自动回中」的双层滚动与整卡跳动。
+      仅桌面端：<768px 侧栏已不是滚动容器，目录若不再限高会把移动端页面拉得很长。 */
+@media (min-width: 768px) {
+  #main-grid #left-sidebar .toc-scroll-container,
+  #main-grid #right-sidebar .toc-scroll-container {
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
 }
