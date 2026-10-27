@@ -1,0 +1,326 @@
+/* ==========================================================================
+   控制坞：把原来贴右边缘的竖向按钮堆收进一枚悬浮胶囊。
+   折叠态是一枚 44px 高的小胶囊（内含一个 v 形箭头），点击后朝所在侧展开
+   同一批按钮；胶囊可拖动、吸附左右边缘，位置由 control-dock.ts 持久化。
+   结构：.floating-controls-container > .control-dock > [.dock-toggle, .dock-items]
+   ========================================================================== */
+
+.floating-controls-container {
+	pointer-events: none;
+}
+
+.control-dock {
+	--dock-edge: 0.875rem;
+	--dock-ease: cubic-bezier(0.22, 0.9, 0.24, 1);
+
+	position: fixed;
+	top: 64vh;
+	left: var(--dock-edge);
+	z-index: 1000;
+	display: flex;
+	align-items: center;
+	padding: 0.25rem;
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	border-radius: 999px;
+	box-shadow:
+		0 14px 34px -18px rgba(0, 0, 0, 0.5),
+		0 3px 10px -6px rgba(0, 0, 0, 0.28),
+		inset 0 1px 0 rgba(255, 255, 255, 0.1);
+	pointer-events: auto;
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+	/* 只过渡吸附用的 margin：left/top 在拖拽时逐帧写入，过渡会造成拖影 */
+	transition:
+		margin-left 0.3s var(--dock-ease),
+		margin-right 0.3s var(--dock-ease),
+		box-shadow 0.2s ease;
+}
+
+.control-dock[data-side="right"] {
+	flex-direction: row-reverse;
+}
+
+/* 毛玻璃单独一层：backdrop-filter 会让元素成为 fixed 后代的包含块，
+   而沉浸阅读的目录抽屉（#immersive-toc，fixed + 全高）就渲染在胶囊内部。 */
+.control-dock::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background-color: var(--card-bg);
+	-webkit-backdrop-filter: blur(18px) saturate(150%);
+	backdrop-filter: blur(18px) saturate(150%);
+}
+
+.control-dock[data-dragging="true"] {
+	cursor: grabbing;
+	box-shadow:
+		0 22px 48px -20px rgba(0, 0, 0, 0.55),
+		0 6px 16px -8px rgba(0, 0, 0, 0.32),
+		inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* 给沉浸阅读的目录抽屉让位时，横向位移要有过渡；拖拽逐帧写 left，所以只在让位时启用 */
+.control-dock.dock-sliding {
+	transition:
+		margin-left 0.3s var(--dock-ease),
+		margin-right 0.3s var(--dock-ease),
+		left 0.3s var(--dock-ease),
+		right 0.3s var(--dock-ease),
+		box-shadow 0.2s ease;
+}
+
+.dark .control-dock {
+	border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* ── 展开/折叠开关 ─────────────────────────────────────────────── */
+
+.dock-toggle {
+	position: relative;
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	width: 3rem;
+	height: 2.75rem;
+	padding: 0;
+	border: 0;
+	border-radius: 999px;
+	background-color: transparent;
+	color: var(--primary);
+	cursor: pointer;
+	transition: background-color 0.18s ease;
+}
+
+.dock-toggle:hover {
+	background-color: var(--btn-regular-bg);
+}
+
+.dock-toggle:active {
+	background-color: var(--btn-regular-bg-hover);
+}
+
+.dock-toggle:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+/* 折叠 = v（向下）；展开后指向按钮冒出的一侧 */
+.dock-chevron {
+	width: 1.4rem;
+	height: 1.4rem;
+	transform: rotate(90deg);
+	transition: transform 0.32s var(--dock-ease);
+}
+
+.control-dock[data-open="true"][data-side="left"] .dock-chevron {
+	transform: rotate(0deg);
+}
+
+.control-dock[data-open="true"][data-side="right"] .dock-chevron {
+	transform: rotate(180deg);
+}
+
+/* 外缘的三点抓握提示：告诉用户这枚胶囊可以拖 */
+.dock-grip {
+	position: absolute;
+	top: 50%;
+	left: 0.34rem;
+	display: grid;
+	grid-template-columns: repeat(2, 2px);
+	gap: 2px;
+	transform: translateY(-50%);
+	opacity: 0.5;
+	transition: opacity 0.18s ease;
+}
+
+.dock-grip i {
+	display: block;
+	width: 2px;
+	height: 2px;
+	border-radius: 50%;
+	background-color: currentColor;
+}
+
+.control-dock[data-side="right"] .dock-grip {
+	right: 0.34rem;
+	left: auto;
+}
+
+.control-dock:hover .dock-grip,
+.control-dock[data-dragging="true"] .dock-grip {
+	opacity: 0.9;
+}
+
+/* ── 按钮排 ───────────────────────────────────────────────────── */
+
+.dock-items {
+	display: flex;
+	align-items: center;
+	gap: 0.125rem;
+	max-width: 0;
+	overflow-x: clip;
+	overflow-y: visible;
+	pointer-events: none;
+	/* 不能在这里写 opacity：祖先 opacity < 1 会连 position:fixed 的沉浸目录抽屉
+	   一起变透明（批15 实测：胶囊折叠时整条抽屉内容黑掉，只剩底色）。
+	   淡入淡出改由里面的按钮各自承担。 */
+	transition: max-width 0.34s var(--dock-ease);
+}
+
+.control-dock[data-open="true"] .dock-items {
+	max-width: 20rem;
+	pointer-events: auto;
+}
+
+/* 展开动画结束后放开横向裁剪：悬浮目录面板要向右/向左探出胶囊 */
+.control-dock.is-open-settled .dock-items {
+	overflow: visible;
+}
+
+/* 胶囊已经提供了毛玻璃底，里面的按钮不再各自带卡片底/描边/阴影。
+   id 选择器用来压过 FloatingButton 的 scoped 规则，但保留 .hide 的 !important。 */
+#control-dock .dock-items .floating-btn {
+	width: 2.75rem;
+	height: 2.75rem;
+	padding: 0.3rem;
+	border: 0;
+	border-radius: 999px !important;
+	background-color: transparent;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+	box-shadow: none;
+	color: var(--primary);
+	opacity: 0;
+	transition:
+		background-color 0.18s ease,
+		color 0.18s ease,
+		opacity 0.16s ease,
+		width 0.3s var(--dock-ease),
+		height 0.3s var(--dock-ease);
+}
+
+#control-dock[data-open="true"] .dock-items .floating-btn {
+	opacity: 1;
+	transition:
+		background-color 0.18s ease,
+		color 0.18s ease,
+		opacity 0.24s ease 0.06s,
+		width 0.3s var(--dock-ease),
+		height 0.3s var(--dock-ease);
+}
+
+#control-dock .dock-items .floating-btn:hover {
+	background-color: var(--btn-regular-bg);
+	color: var(--primary);
+	box-shadow: none;
+}
+
+#control-dock .dock-items .floating-btn:active {
+	transform: scale(0.92);
+}
+
+#control-dock .dock-items .floating-btn.toggled {
+	background-color: var(--btn-regular-bg);
+}
+
+#control-dock .dock-items .floating-btn.toggled:hover {
+	background-color: var(--btn-regular-bg-hover);
+}
+
+/* 悬浮目录面板：胶囊贴左时改为向右探出，并留出贴边余量 */
+#control-dock[data-side="left"] .dock-items .floating-toc-panel {
+	right: auto;
+	left: 0;
+	max-width: calc(100vw - 4rem);
+}
+
+/* ── 贴边吸附提示 ─────────────────────────────────────────────── */
+
+.dock-snap-hint {
+	position: fixed;
+	top: 50%;
+	width: 3px;
+	height: 7rem;
+	border-radius: 999px;
+	background-color: var(--primary);
+	opacity: 0;
+	transform: translateY(-50%) scaleY(0.8);
+	pointer-events: none;
+	transition:
+		opacity 0.16s ease,
+		transform 0.16s ease;
+	z-index: 1;
+}
+
+.dock-snap-hint[data-edge="left"] {
+	left: 5px;
+}
+
+.dock-snap-hint[data-edge="right"] {
+	right: 5px;
+}
+
+.dock-snap-hint[data-active="true"] {
+	opacity: 0.55;
+	transform: translateY(-50%) scaleY(1);
+}
+
+/* ── 响应式 ───────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+	.dock-toggle {
+		width: 2.75rem;
+		height: 2.5rem;
+	}
+
+	.dock-chevron {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
+
+	#control-dock .dock-items .floating-btn {
+		width: 2.5rem;
+		height: 2.5rem;
+	}
+}
+
+@media (max-width: 360px) {
+	.dock-toggle {
+		width: 2.5rem;
+		height: 2.25rem;
+	}
+
+	#control-dock .dock-items .floating-btn {
+		width: 2.25rem;
+		height: 2.25rem;
+	}
+}
+
+@media (max-width: 320px) {
+	.control-dock {
+		padding: 0.2rem;
+	}
+
+	.dock-toggle {
+		width: 2.25rem;
+		height: 2rem;
+	}
+
+	#control-dock .dock-items .floating-btn {
+		width: 2rem;
+		height: 2rem;
+		padding: 0.2rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.control-dock,
+	.dock-items,
+	.dock-chevron,
+	.dock-snap-hint {
+		transition-duration: 0.01ms !important;
+	}
+}

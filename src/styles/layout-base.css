@@ -338,3 +338,16 @@
     overscroll-behavior: auto;
   }
 }
+
+/* 批15：侧栏在「正文边缘 → 视口边缘」的空白里居中。
+   xl 下内容面板是 92vw 居中（或受 --page-width 限宽），面板外侧左右各留一截空白：
+   1440 时左侧空白 57.6px、面板内边距 16px，于是正文到侧栏 16px、侧栏到视口 73.6px，
+   视觉上侧栏是偏左贴着正文的。位移 = 单侧空白的一半 = (100vw - 面板宽) / 4。
+   用 translate 而不是 transform：侧栏还挂着 fade-in-up 入场动画，动画里的 transform
+   优先级高于普通声明，会把这个位移整个吃掉（批15 实测 computed 恒为 identity）。
+   也不用 margin：侧栏是 grid item，margin 会挤压卡片宽度。 */
+@media (min-width: 1280px) {
+  #main-grid #right-sidebar {
+    translate: calc((100vw - min(92vw, var(--page-width))) / 4) 0;
+  }
+}
