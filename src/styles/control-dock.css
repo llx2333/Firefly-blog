@@ -30,11 +30,8 @@
 	cursor: grab;
 	touch-action: none;
 	user-select: none;
-	/* 只过渡吸附用的 margin：left/top 在拖拽时逐帧写入，过渡会造成拖影 */
-	transition:
-		margin-left 0.3s var(--dock-ease),
-		margin-right 0.3s var(--dock-ease),
-		box-shadow 0.2s ease;
+	/* left/top 在拖拽时逐帧写入，只有 .dock-settling 期间才开位移过渡 */
+	transition: box-shadow 0.2s ease;
 }
 
 .control-dock[data-side="right"] {
@@ -62,13 +59,13 @@
 		inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
-/* 给沉浸阅读的目录抽屉让位时，横向位移要有过渡；拖拽逐帧写 left，所以只在让位时启用 */
-.control-dock.dock-sliding {
+/* 吸附停靠 / 滑出 / 抽屉让位时的缓动；拖拽期间该类被移除，逐帧写 left/top 不会拖影 */
+.control-dock.dock-settling {
 	transition:
-		margin-left 0.3s var(--dock-ease),
-		margin-right 0.3s var(--dock-ease),
-		left 0.3s var(--dock-ease),
-		right 0.3s var(--dock-ease),
+		left 0.34s var(--dock-ease),
+		right 0.34s var(--dock-ease),
+		top 0.24s var(--dock-ease),
+		opacity 0.28s ease,
 		box-shadow 0.2s ease;
 }
 
