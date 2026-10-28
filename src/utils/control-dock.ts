@@ -16,7 +16,7 @@ const STORAGE_KEY = "firefly:control-dock";
 const DRAWER_GAP = 12;
 const DRAG_THRESHOLD = 4;
 /** 胶囊边缘离视口左/右边缘小于这个距离时，吸附停靠（要小：稍远一点就自由摆放） */
-const SNAP_DISTANCE = 10;
+const SNAP_DISTANCE = 4;
 /** 停靠态收进屏幕外的球宽比例：0.5 = 藏起半颗 */
 const TUCK_RATIO = 0.5;
 /** 停靠态的不透明度 */
@@ -132,6 +132,8 @@ export function initControlDock(): void {
 	let hovered = false;
 	/** 刚停靠时指针仍压在球上，忽略这次悬停，让它立刻收进半颗 */
 	let hoverBlocked = false;
+	/** 收起动画进行中：此刻宽度还是展开值，按它算 tuck 会把整颗球送出屏幕（批19） */
+	let closing = false;
 	let drag: DragState | null = null;
 	let suppressClickUntil = 0;
 	let settleTimer = 0;
@@ -215,6 +217,38 @@ export function initControlDock(): void {
 		anchor = target;
 	};
 
+	/**
+	 * 停靠态露出后，指针要真正离开多大范围才收回去。
+	 *
+	 * 不能用「指针是否还在球上」判定：球是 999px 圆角，滑出动画会把左下/右下圆弧
+	 * 从指针底下挪走，浏览器下一帧重新命中就 pointerleave，收回去又重新 pointerenter，
+	 * 边缘处就无限闪（批19 实测：停住不动也能切 36 次）。这里改成矩形保持区，
+	 * 并上收起前那半颗球的位置，再外扩一圈缓冲——判定只跟指针坐标有关，不跟动画相位有关。
+	 */
+	const hoverHoldRect = (): {
+		left: number;
+		right: number;
+		top: number;
+		bottom: number;
+	} => {
+		const rect = dock.getBoundingClientRect();
+		const pad = 10;
+		const extra = rect.width * TUCK_RATIO;
+		return {
+			left: docked === "left" ? rect.left - extra - pad : rect.left - pad,
+			right: docked === "right" ? rect.right + extra + pad : rect.right + pad,
+			top: rect.top - pad,
+			bottom: rect.bottom + pad,
+		};
+	};
+
+	const insideHold = (x: number, y: number): boolean => {
+		const hold = hoverHoldRect();
+		return (
+			x >= hold.left && x <= hold.right && y >= hold.top && y <= hold.bottom
+		);
+	};
+
 	/** 把当前状态落到 DOM：自由位置贴到比例坐标，停靠位置按收进/滑出取值 */
 	const applyLayout = (animate: boolean): void => {
 		const { width, height } = sizeOf();
@@ -231,7 +265,8 @@ export function initControlDock(): void {
 				: docked === "right"
 					? insetRight === 0
 					: false;
-		const tucked = docked !== null && canTuck && !hovered && !isOpen() && !drag;
+		const tucked =
+			docked !== null && canTuck && !hovered && !isOpen() && !drag && !closing;
 
 		// 右停靠用 right 锚定：展开时宽度变大，右边缘必须钉住，否则会溢出屏幕
 		let leftPx: number | null = null;
@@ -282,8 +317,29 @@ export function initControlDock(): void {
 		dock.dataset.tucked = String(tucked);
 	};
 
+	/** 指针移到保持区之外才收起；顺带解除「刚拖完不许悬停」的封锁 */
+	const releaseHover = (x: number, y: number): void => {
+		if (!docked) return;
+		const inside = insideHold(x, y);
+		if (!inside) hoverBlocked = false;
+		if (!hovered || inside || drag) return;
+		hovered = false;
+		applyLayout(true);
+	};
+
 	const persist = (): void => {
 		writeSavedPosition({ x: posX, y: posY, docked });
+	};
+
+	/**
+	 * 收起动画结束后，按「已收起」的宽度重新收进半颗。
+	 * 收起瞬间量到的还是展开宽度（实测 116px），拿它算 -宽/2 会把整颗球推出屏幕
+	 * （left -58 / right -16），要等 max-width 过渡完再量，或者靠兜底定时器补一刀。
+	 */
+	const settleClosed = (): void => {
+		if (dock.dataset.open === "true" || !closing) return;
+		closing = false;
+		applyLayout(true);
 	};
 
 	const setOpen = (open: boolean): void => {
@@ -297,6 +353,10 @@ export function initControlDock(): void {
 				toggler?.();
 			}
 			dock.classList.remove("is-open-settled");
+			closing = true;
+			window.setTimeout(settleClosed, SETTLE_MS + 160);
+		} else {
+			closing = false;
 		}
 		dock.dataset.open = String(open);
 		toggle.setAttribute("aria-expanded", String(open));
@@ -320,6 +380,8 @@ export function initControlDock(): void {
 			return;
 		}
 		dock.classList.toggle("is-open-settled", dock.dataset.open === "true");
+		if (dock.dataset.open === "true") closing = false;
+		else settleClosed();
 	});
 
 	const onPointerDown = (event: PointerEvent): void => {
@@ -400,6 +462,10 @@ export function initControlDock(): void {
 	};
 
 	const onPointerMove = (event: PointerEvent): void => {
+		// 收起判定放在拖动之前：拖动之外的所有移动都要重新核对「指针是否还在保持区」
+		if (!drag && event.pointerType !== "touch") {
+			releaseHover(event.clientX, event.clientY);
+		}
 		if (!drag || event.pointerId !== drag.pointerId) return;
 		const dx = event.clientX - drag.startX;
 		const dy = event.clientY - drag.startY;
@@ -442,11 +508,10 @@ export function initControlDock(): void {
 		applyLayout(true);
 	};
 
-	const onPointerLeave = (): void => {
-		hoverBlocked = false;
-		if (drag || !docked) return;
-		hovered = false;
-		applyLayout(true);
+	const onPointerLeave = (event: PointerEvent): void => {
+		// 这里不再直接收：滑出动画会让圆弧边界从指针底下挪开，靠它判定会来回闪。
+		// 交给保持区几何判定，指针真的走远了才收（批19）。
+		releaseHover(event.clientX, event.clientY);
 	};
 
 	const onFocusIn = (): void => {
