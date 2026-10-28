@@ -574,7 +574,7 @@ const licenseHref = entry.data.licenseName
 
   {
     siteConfig.post.postNavigation && (
-      <nav class="flex flex-row items-center justify-center gap-2 sm:gap-3 mb-4 w-full min-w-0" data-post-nav>
+      <nav class="flex flex-row items-center justify-between gap-2 sm:gap-3 mb-4 w-full min-w-0" data-post-nav>
     <a
       href={entry.data.nextSlug ? getPostUrlBySlug(entry.data.nextSlug) : url("/")}
       class="flex-1 min-w-0 max-w-[13rem] font-bold active:scale-95 transition"
