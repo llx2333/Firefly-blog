@@ -217,35 +217,12 @@
 	max-width: calc(100vw - 4rem);
 }
 
-/* ── 贴边吸附提示 ─────────────────────────────────────────────── */
-
-.dock-snap-hint {
-	position: fixed;
-	top: 50%;
-	width: 3px;
-	height: 7rem;
-	border-radius: 999px;
-	background-color: var(--primary);
-	opacity: 0;
-	transform: translateY(-50%) scaleY(0.8);
-	pointer-events: none;
-	transition:
-		opacity 0.16s ease,
-		transform 0.16s ease;
-	z-index: 1;
-}
-
-.dock-snap-hint[data-edge="left"] {
-	left: 5px;
-}
-
-.dock-snap-hint[data-edge="right"] {
-	right: 5px;
-}
-
-.dock-snap-hint[data-active="true"] {
-	opacity: 0.55;
-	transform: translateY(-50%) scaleY(1);
+/* 拖动时保持静止态外观：光标压在把手上会点亮 hover 底色，
+   移动中看起来像整枚胶囊变透明了（批17 反馈），拖动期间压掉。 */
+.control-dock[data-dragging="true"] .dock-toggle,
+.control-dock[data-dragging="true"] .dock-toggle:hover,
+.control-dock[data-dragging="true"] .dock-toggle:active {
+	background-color: transparent;
 }
 
 /* ── 响应式 ───────────────────────────────────────────────────── */
@@ -316,8 +293,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.control-dock,
-	.dock-items,
-	.dock-snap-hint {
+	.dock-items {
 		transition-duration: 0.01ms !important;
 	}
 }

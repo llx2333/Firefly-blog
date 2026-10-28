@@ -12,6 +12,8 @@ const EDGE_GAP = 14;
 /** 沉浸阅读目录抽屉展开时，胶囊与抽屉边缘之间的间隙 */
 const DRAWER_GAP = 12;
 const DRAG_THRESHOLD = 4;
+/** 胶囊边缘离视口边缘小于这个距离时，直接吸到停靠位 */
+const SNAP_DISTANCE = 28;
 const DEFAULT_RATIO = 0.64;
 /** 这些按钮打开的是自身弹层，折叠胶囊会把弹层横向裁掉，点击后保持展开 */
 const KEEP_OPEN_ACTIONS = new Set([
@@ -35,6 +37,8 @@ interface DragState {
 	width: number;
 	height: number;
 	moved: boolean;
+	/** 已显式捕获指针：拖出窗口后仍能收到 pointerup */
+	captured: boolean;
 }
 
 declare global {
@@ -85,16 +89,6 @@ export function initControlDock(): void {
 	let ratio = saved?.ratio ?? DEFAULT_RATIO;
 	let drag: DragState | null = null;
 	let suppressClickUntil = 0;
-
-	const hints = Array.from(
-		document.querySelectorAll<HTMLElement>(".dock-snap-hint"),
-	);
-
-	const setHint = (edge: DockSide | null): void => {
-		for (const hint of hints) {
-			hint.dataset.active = String(hint.dataset.edge === edge);
-		}
-	};
 
 	/**
 	 * 沉浸阅读的目录抽屉（#immersive-toc）是 fixed 全高面板，且渲染在胶囊内部，
@@ -231,7 +225,36 @@ export function initControlDock(): void {
 			width: rect.width,
 			height: rect.height,
 			moved: false,
+			captured: false,
 		};
+	};
+
+	const releaseCapture = (): void => {
+		if (!drag?.captured) return;
+		try {
+			dock.releasePointerCapture(drag.pointerId);
+		} catch {
+			// 指针已经失效，无需释放
+		}
+		drag.captured = false;
+	};
+
+	/** 结束一次拖动：按落点吸附左右边缘。pointerup / pointercancel / 失焦都走这里 */
+	const endDrag = (): void => {
+		if (!drag) return;
+		const moved = drag.moved;
+		releaseCapture();
+		drag = null;
+		dock.dataset.dragging = "false";
+		if (!moved) return;
+
+		// 拖拽结束浏览器仍会派发一次 click，短时间内吞掉它
+		suppressClickUntil = Date.now() + 400;
+		const rect = dock.getBoundingClientRect();
+		ratio = clamp(rect.top / window.innerHeight, 0, 1);
+		snapTo(
+			rect.left + rect.width / 2 < window.innerWidth / 2 ? "left" : "right",
+		);
 	};
 
 	const onPointerMove = (event: PointerEvent): void => {
@@ -242,33 +265,38 @@ export function initControlDock(): void {
 		if (!drag.moved) {
 			drag.moved = true;
 			dock.dataset.dragging = "true";
+			// 显式捕获指针：光标拖出窗口后松开时仍能收到 pointerup，
+			// 否则拖动态会卡住、胶囊停在贴边处不再吸附（批17）
+			try {
+				dock.setPointerCapture(drag.pointerId);
+				drag.captured = true;
+			} catch {
+				// 指针已失效：靠 pointercancel / 失焦兜底
+			}
 		}
 
 		const viewportWidth = window.innerWidth;
 		const viewportHeight = window.innerHeight;
-		const left = clamp(drag.left + dx, 0, viewportWidth - drag.width);
+		const maxLeft = Math.max(0, viewportWidth - drag.width);
+		let left = clamp(drag.left + dx, 0, maxLeft);
 		const top = clamp(drag.top + dy, 0, viewportHeight - drag.height);
+
+		// 磁性贴边：接近边缘立刻落到停靠位，松手前后位置一致，
+		// 胶囊不会停在半嵌进屏幕边缘的状态
+		if (left <= SNAP_DISTANCE) {
+			left = Math.min(EDGE_GAP, maxLeft);
+		} else if (left >= maxLeft - SNAP_DISTANCE) {
+			left = Math.max(maxLeft - EDGE_GAP, 0);
+		}
+
 		dock.style.left = `${left}px`;
 		dock.style.right = "auto";
 		dock.style.top = `${top}px`;
-		setHint(left + drag.width / 2 < viewportWidth / 2 ? "left" : "right");
 	};
 
 	const onPointerUp = (event: PointerEvent): void => {
 		if (!drag || event.pointerId !== drag.pointerId) return;
-		const moved = drag.moved;
-		drag = null;
-		dock.dataset.dragging = "false";
-		setHint(null);
-		if (!moved) return;
-
-		// 拖拽结束浏览器仍会派发一次 click，短时间内吞掉它
-		suppressClickUntil = Date.now() + 400;
-		const rect = dock.getBoundingClientRect();
-		ratio = clamp(rect.top / window.innerHeight, 0, 1);
-		snapTo(
-			rect.left + rect.width / 2 < window.innerWidth / 2 ? "left" : "right",
-		);
+		endDrag();
 	};
 
 	const onClick = (event: MouseEvent): void => {
@@ -291,6 +319,11 @@ export function initControlDock(): void {
 	window.addEventListener("pointermove", onPointerMove);
 	window.addEventListener("pointerup", onPointerUp);
 	window.addEventListener("pointercancel", onPointerUp);
+	// 拖到窗口外松手、切标签页：浏览器不再派发 pointerup，靠这两个事件收尾
+	window.addEventListener("blur", endDrag);
+	document.addEventListener("visibilitychange", () => {
+		if (document.hidden) endDrag();
+	});
 	dock.addEventListener("click", onClick);
 
 	// 展开时点外部/按 Esc 收起
