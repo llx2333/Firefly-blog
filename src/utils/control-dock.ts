@@ -15,8 +15,8 @@ const STORAGE_KEY = "firefly:control-dock";
 /** 沉浸阅读目录抽屉展开时，胶囊与抽屉边缘之间的间隙 */
 const DRAWER_GAP = 12;
 const DRAG_THRESHOLD = 4;
-/** 胶囊离视口左/右边缘小于这个距离时，吸附停靠 */
-const SNAP_DISTANCE = 36;
+/** 胶囊边缘离视口左/右边缘小于这个距离时，吸附停靠（要小：稍远一点就自由摆放） */
+const SNAP_DISTANCE = 10;
 /** 停靠态收进屏幕外的球宽比例：0.5 = 藏起半颗 */
 const TUCK_RATIO = 0.5;
 /** 停靠态的不透明度 */
