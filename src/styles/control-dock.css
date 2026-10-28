@@ -1,7 +1,7 @@
 /* ==========================================================================
    控制坞：把原来贴右边缘的竖向按钮堆收进一枚悬浮胶囊。
-   折叠态是一枚 44px 高的小胶囊（内含一个 v 形箭头），点击后朝所在侧展开
-   同一批按钮；胶囊可拖动、吸附左右边缘，位置由 control-dock.ts 持久化。
+   折叠态是一枚小胶囊（内含六点把手），点击后朝所在侧展开同一批按钮；
+   胶囊可拖动、吸附左右边缘，位置由 control-dock.ts 持久化。
    结构：.floating-controls-container > .control-dock > [.dock-toggle, .dock-items]
    ========================================================================== */
 
@@ -19,7 +19,7 @@
 	z-index: 1000;
 	display: flex;
 	align-items: center;
-	padding: 0.25rem;
+	padding: 0.2rem;
 	border: 1px solid rgba(0, 0, 0, 0.08);
 	border-radius: 999px;
 	box-shadow:
@@ -76,15 +76,15 @@
 	border-color: rgba(255, 255, 255, 0.12);
 }
 
-/* ── 展开/折叠开关 ─────────────────────────────────────────────── */
+/* ── 展开/折叠开关：六点把手本身就是图标 ─────────────────────────── */
 
 .dock-toggle {
 	position: relative;
 	display: grid;
 	place-items: center;
 	flex: 0 0 auto;
-	width: 3rem;
-	height: 2.75rem;
+	width: 2.125rem;
+	height: 2.125rem;
 	padding: 0;
 	border: 0;
 	border-radius: 999px;
@@ -107,51 +107,26 @@
 	outline-offset: 2px;
 }
 
-/* 折叠 = v（向下）；展开后指向按钮冒出的一侧 */
-.dock-chevron {
-	width: 1.4rem;
-	height: 1.4rem;
-	transform: rotate(90deg);
-	transition: transform 0.32s var(--dock-ease);
-}
-
-.control-dock[data-open="true"][data-side="left"] .dock-chevron {
-	transform: rotate(0deg);
-}
-
-.control-dock[data-open="true"][data-side="right"] .dock-chevron {
-	transform: rotate(180deg);
-}
-
-/* 外缘的三点抓握提示：告诉用户这枚胶囊可以拖 */
+/* 六点把手（2 列 × 3 行）：既是开关图标，也提示这枚胶囊可以拖 */
 .dock-grip {
-	position: absolute;
-	top: 50%;
-	left: 0.34rem;
 	display: grid;
-	grid-template-columns: repeat(2, 2px);
-	gap: 2px;
-	transform: translateY(-50%);
-	opacity: 0.5;
+	grid-template-columns: repeat(2, 3px);
+	gap: 3px;
+	opacity: 0.75;
 	transition: opacity 0.18s ease;
 }
 
 .dock-grip i {
 	display: block;
-	width: 2px;
-	height: 2px;
+	width: 3px;
+	height: 3px;
 	border-radius: 50%;
 	background-color: currentColor;
 }
 
-.control-dock[data-side="right"] .dock-grip {
-	right: 0.34rem;
-	left: auto;
-}
-
 .control-dock:hover .dock-grip,
 .control-dock[data-dragging="true"] .dock-grip {
-	opacity: 0.9;
+	opacity: 1;
 }
 
 /* ── 按钮排 ───────────────────────────────────────────────────── */
@@ -183,9 +158,9 @@
 /* 胶囊已经提供了毛玻璃底，里面的按钮不再各自带卡片底/描边/阴影。
    id 选择器用来压过 FloatingButton 的 scoped 规则，但保留 .hide 的 !important。 */
 #control-dock .dock-items .floating-btn {
-	width: 2.75rem;
-	height: 2.75rem;
-	padding: 0.3rem;
+	width: 2.125rem;
+	height: 2.125rem;
+	padding: 0.2rem;
 	border: 0;
 	border-radius: 999px !important;
 	background-color: transparent;
@@ -200,6 +175,11 @@
 		opacity 0.16s ease,
 		width 0.3s var(--dock-ease),
 		height 0.3s var(--dock-ease);
+}
+
+/* 图标按胶囊尺度收小（FloatingButton 默认 1.6rem 是给独立大按钮的） */
+#control-dock .dock-items .floating-btn svg {
+	font-size: 1.05rem;
 }
 
 #control-dock[data-open="true"] .dock-items .floating-btn {
@@ -271,55 +251,72 @@
 /* ── 响应式 ───────────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
+	/* 移动端根字号是 14px，这里的 rem 比桌面小一档 */
 	.dock-toggle {
-		width: 2.75rem;
-		height: 2.5rem;
-	}
-
-	.dock-chevron {
-		width: 1.25rem;
-		height: 1.25rem;
+		width: 2rem;
+		height: 2rem;
 	}
 
 	#control-dock .dock-items .floating-btn {
-		width: 2.5rem;
-		height: 2.5rem;
+		width: 2.25rem;
+		height: 2.25rem;
+	}
+
+	#control-dock .dock-items .floating-btn svg {
+		font-size: 1.1rem;
 	}
 }
 
 @media (max-width: 360px) {
 	.dock-toggle {
-		width: 2.5rem;
-		height: 2.25rem;
+		width: 1.875rem;
+		height: 1.875rem;
+	}
+
+	.dock-grip {
+		grid-template-columns: repeat(2, 2.5px);
+		gap: 2.5px;
+	}
+
+	.dock-grip i {
+		width: 2.5px;
+		height: 2.5px;
 	}
 
 	#control-dock .dock-items .floating-btn {
-		width: 2.25rem;
-		height: 2.25rem;
+		width: 2.125rem;
+		height: 2.125rem;
+	}
+
+	#control-dock .dock-items .floating-btn svg {
+		font-size: 1.05rem;
 	}
 }
 
 @media (max-width: 320px) {
 	.control-dock {
-		padding: 0.2rem;
+		padding: 0.15rem;
 	}
 
 	.dock-toggle {
-		width: 2.25rem;
-		height: 2rem;
+		width: 1.75rem;
+		height: 1.75rem;
 	}
 
 	#control-dock .dock-items .floating-btn {
 		width: 2rem;
 		height: 2rem;
-		padding: 0.2rem;
+		padding: 0.15rem;
+	}
+
+	#control-dock .dock-items .floating-btn svg {
+		font-size: 1rem;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.control-dock,
 	.dock-items,
-	.dock-chevron,
 	.dock-snap-hint {
 		transition-duration: 0.01ms !important;
 	}
