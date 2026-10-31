@@ -590,5 +590,46 @@ export function initControlDock(): void {
 		}).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 	}
 
+	/**
+	 * 胶囊里一颗可用的按钮都没有时，整枚收起来（批20 用户拍板：首页顶部就是空态——
+	 * 目录/沉浸阅读/回评论/回首页都不可用，返回顶部要滚过 200px 才出现，
+	 * 此时「能点开却什么都没有」的球纯属噪音）。
+	 *
+	 * 不去各组件里挂回调：所有控件的显隐最后都落到 .floating-btn 的 class/style 上，
+	 * 直接盯这个容器的属性变化最不容易漏（BackToTop 由滚动驱动、BackToHome 由路由驱动，
+	 * 各自时机不同）。
+	 */
+	const hasVisibleButtons = (): boolean => {
+		if (!items) return true;
+		return [...items.querySelectorAll(".floating-btn")].some(
+			(btn) =>
+				!btn.classList.contains("hide") &&
+				(btn as HTMLElement).style.display !== "none",
+		);
+	};
+
+	/** 与初始标记一致：还没有空态类 */
+	let dockEmpty = false;
+	const updateEmptyState = (): void => {
+		const empty = items ? !hasVisibleButtons() : false;
+		if (empty === dockEmpty) return;
+		dockEmpty = empty;
+		// 隐藏前先回到收起态，否则重新出现时会以展开态弹出来
+		if (empty && isOpen()) setOpen(false);
+		dock.classList.toggle("dock-empty", empty);
+		// 刚放回来时重测尺寸：隐藏期间量到的是 0，位置要按真实宽度重算
+		if (!empty) applyLayout(false);
+	};
+
+	if (items) {
+		new MutationObserver(updateEmptyState).observe(items, {
+			attributes: true,
+			attributeFilter: ["class", "style"],
+			subtree: true,
+			childList: true,
+		});
+	}
+
 	applyLayout(false);
+	updateEmptyState();
 }

@@ -34,6 +34,13 @@
 	transition: box-shadow 0.2s ease;
 }
 
+/* 胶囊里一颗可用的按钮都没有时整枚收起来（首页顶部即此状态：目录/沉浸阅读/
+   回评论/回首页全不可用，返回顶部要滚过 200px 才出现）。显隐由 control-dock.ts
+   按 .floating-btn 的实际状态判定，按钮重新出现时会自动放回。 */
+.control-dock.dock-empty {
+	display: none;
+}
+
 .control-dock[data-side="right"] {
 	flex-direction: row-reverse;
 }
