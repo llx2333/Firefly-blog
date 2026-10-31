@@ -63,6 +63,11 @@ const {
     border: 1px solid rgba(0, 0, 0, 0.1)
     flex-shrink: 0
     overflow: hidden
+
+    /* 内层 <button> 铺满整块卡片，浏览器给它的是 UA 光标（箭头），
+       不显式改成手型，悬停时看着像不可点 */
+    button
+        cursor: pointer
     
     /* 图标样式 */
     :global(svg)
