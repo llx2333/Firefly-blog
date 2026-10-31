@@ -153,7 +153,8 @@ let fileExt = $state<"md" | "mdx">("md");
 let loadedPath = $state<string | null>(null); // 当前 sha 对应的远端路径
 let sha = $state<string | null>(null);
 let tagsInput = $state("");
-let seriesOrderInput = $state("");
+// type="number" 的 bind:value 会给 number/null（见 syncMetaInputs 注释），声明放宽
+let seriesOrderInput = $state<string | number | null>("");
 let showFrontmatter = $state(true);
 let mobileTab = $state<"edit" | "preview">("edit");
 let editorLoading = $state(false);
@@ -645,8 +646,10 @@ function syncMetaInputs() {
 		.split(/[,，]/)
 		.map((tag) => tag.trim())
 		.filter(Boolean);
-	fm.seriesOrder =
-		seriesOrderInput.trim() === "" ? null : Number(seriesOrderInput);
+	// type="number" 的 bind:value 经 svelte to_number() 会把值变成 number（填过）或 null（清空），
+	// 不能当字符串直接 .trim()，先归一化
+	const orderText = seriesOrderInput == null ? "" : String(seriesOrderInput);
+	fm.seriesOrder = orderText.trim() === "" ? null : Number(orderText);
 	if (!fm.slug) {
 		// 文件名带 YYYY-MM-DD- 前缀，slug 不带（与 onTitleBlur 的建议口径一致）
 		const fallback = fileNameToSlug(fileName.trim()).replace(

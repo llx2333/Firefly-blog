@@ -25,7 +25,9 @@ let slug = $state("");
 let image = $state("");
 let author = $state("");
 let series = $state("");
-let seriesOrder = $state("");
+// type="number" 的 bind:value 经 svelte to_number() 会把值变成 number（填过）或 null（清空），
+// 不能当字符串直接 .trim()，confirmNew 里必须先归一化
+let seriesOrder = $state<string | number | null>("");
 let pinned = $state(false);
 let draft = $state(false);
 let showMore = $state(false);
@@ -66,7 +68,9 @@ function confirmNew() {
 		error = "标题不能为空";
 		return;
 	}
-	const order = Number(seriesOrder);
+	// seriesOrder 可能是 number / null / ""（见上声明处注释），统一转成字符串再判空
+	const orderText = seriesOrder == null ? "" : String(seriesOrder);
+	const order = Number(orderText);
 	const seed = {
 		title: trimmed,
 		// 非法/留空日期交给编辑器兜底（同样是今天），这里原样传字符串
@@ -82,7 +86,7 @@ function confirmNew() {
 		author: author.trim(),
 		series: series.trim(),
 		seriesOrder:
-			seriesOrder.trim() !== "" && Number.isFinite(order) ? order : null,
+			orderText.trim() !== "" && Number.isFinite(order) ? order : null,
 		pinned,
 		draft,
 	};

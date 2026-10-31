@@ -125,7 +125,9 @@ let sha = $state<string | null>(null);
 /** 最近一次持久化（master 或草稿分支）的全文快照：驱动 dirty / beforeunload */
 let savedSnapshot = $state("");
 let tagsInput = $state("");
-let seriesOrderInput = $state("");
+// type="number" 的 bind:value 经 svelte to_number() 会把值变成 number（填过）或 null（清空），
+// 不能当字符串直接 .trim()，syncMetaInputs 里必须先归一化
+let seriesOrderInput = $state<string | number | null>("");
 /** 进编辑默认只露正文；标题/日期/标签等点「展开文章信息」再改 */
 let showFrontmatter = $state(false);
 let mobileTab = $state<"edit" | "preview">("edit");
@@ -576,8 +578,9 @@ function syncMetaInputs() {
 		.split(/[,，]/)
 		.map((tag) => tag.trim())
 		.filter(Boolean);
-	fm.seriesOrder =
-		seriesOrderInput.trim() === "" ? null : Number(seriesOrderInput);
+	// seriesOrderInput 可能是 number / null / ""（见上声明处注释），统一转成字符串再判空
+	const orderText = seriesOrderInput == null ? "" : String(seriesOrderInput);
+	fm.seriesOrder = orderText.trim() === "" ? null : Number(orderText);
 	if (!fm.slug) {
 		// slug 不带日期前缀（与 /write 的口径一致）
 		const fallback = fileNameToSlug(fileName.replace(/\.(md|mdx)$/i, ""))
