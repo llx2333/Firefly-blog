@@ -208,6 +208,14 @@ export async function listPostFiles(token: string): Promise<ContentsEntry[]> {
 	}
 }
 
+/**
+ * Contents API 的 path 编码：整段 encodeURI 不转义 # 和 ?，文件名带这些字符时
+ * URL 会被截断成 fragment / query。按段 encodeURIComponent 才安全（草稿分支同款）。
+ */
+export function apiContentsPath(path: string): string {
+	return path.split("/").map(encodeURIComponent).join("/");
+}
+
 /** 拉取单个文件内容（文本） */
 export async function fetchFile(
 	token: string,
@@ -215,7 +223,7 @@ export async function fetchFile(
 ): Promise<{ text: string; sha: string }> {
 	const res = await ghFetch(
 		token,
-		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${encodeURI(path)}?ref=${WRITE_REPO.branch}`,
+		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${apiContentsPath(path)}?ref=${WRITE_REPO.branch}`,
 	);
 	const file = (await res.json()) as ContentsFile;
 	if (file.encoding !== "base64" || typeof file.content !== "string") {
@@ -234,7 +242,7 @@ export async function putFile(
 ): Promise<{ sha: string }> {
 	const res = await ghFetch(
 		token,
-		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${encodeURI(path)}`,
+		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${apiContentsPath(path)}`,
 		{
 			method: "PUT",
 			body: JSON.stringify({
@@ -265,7 +273,7 @@ export async function deleteFile(
 ): Promise<void> {
 	await ghFetch(
 		token,
-		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${encodeURI(path)}`,
+		`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${apiContentsPath(path)}`,
 		{
 			method: "DELETE",
 			body: JSON.stringify({

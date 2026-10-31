@@ -1,6 +1,7 @@
 import { expressiveCodeConfig, navbarMode, siteConfig } from "@/config";
 import type { WALLPAPER_MODE } from "@/types/config";
 import { scheduleContentOverflowEnhancements } from "@/utils/content-overflow-utils";
+import { confirmAllDirty } from "@/utils/dirty-guard";
 import { initializeFloatingPanels } from "@/utils/floating-panel-utils";
 import {
 	syncFullscreenBlur,
@@ -59,9 +60,31 @@ function finishProgressBar(): void {
 
 /**
  * Swup 页面切换编排（从 Layout.astro 迁出）。
- * 注册 link:click / content:replace / visit:start / page:view / visit:end 钩子。
+ * replace link:click（脏态守卫）+ 注册 link:click / content:replace / page:view / visit:end 钩子。
  */
 function registerSwupHooks(): void {
+	// 未保存修改守卫（utils/dirty-guard）：编辑器脏状态下拦下站内换页，确认后才放行。
+	// swup 4.9.2 的 visit:start 无法干净取消：navigate.ts 在 visit:start 钩子解析后
+	// 无条件把 visit.state 重置为 STARTED，before-handler 里的 abort()/ignore() 会被覆盖；
+	// 事后再 abort 是「URL 已 push、内容不换」的半导航，ignore 则整页 assign 跳走。
+	// link:click 是带 default handler 的同步钩子（handleLinkClick → preventDefault +
+	// performNavigation），用 replace 接管：取消时自己 preventDefault 且不调
+	// defaultHandler，swup 完全不动（URL/内容/history 零变化）；放行时透传。
+	// 浏览器前进/后退（popstate）不经过 link:click，history 已变更本就拦不住，维持默认。
+	window.swup.hooks.replace(
+		"link:click",
+		(
+			_visit: unknown,
+			{ event }: { el: HTMLAnchorElement; event: MouseEvent },
+			defaultHandler: () => void,
+		) => {
+			if (!confirmAllDirty()) {
+				event.preventDefault();
+				return;
+			}
+			defaultHandler();
+		},
+	);
 	// 非首页全屏模式与 overlay 一致（内容在最上面），首页 hero 结构回顶即可，
 	// 均无需自定义 swup 回顶行为，保留默认滚动到顶部
 	// TODO: temp solution to change the height of the banner

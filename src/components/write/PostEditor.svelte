@@ -11,6 +11,7 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onDestroy, tick } from "svelte";
+import { registerDirtyGuard } from "@/utils/dirty-guard";
 import {
 	clearVerified,
 	ensureVerified,
@@ -44,11 +45,7 @@ import {
 	POSTS_DIR,
 } from "@/utils/write/github";
 import { persistToken } from "@/utils/write/session";
-import {
-	fileNameToSlug,
-	timestampPrefix,
-	todayDateString,
-} from "@/utils/write/slug";
+import { timestampPrefix, todayDateString } from "@/utils/write/slug";
 import DateField from "./DateField.svelte";
 
 let {
@@ -278,6 +275,15 @@ $effect(() => {
 	};
 	window.addEventListener("beforeunload", handler);
 	return () => window.removeEventListener("beforeunload", handler);
+});
+
+// 站内 swup 换页不走 beforeunload：编辑态把守卫登记进 swup visit:start 拦截
+// （utils/dirty-guard + swup-transitions），脏了弹确认，不脏直接放行
+$effect(() => {
+	if (mode !== "editing") return;
+	return registerDirtyGuard(
+		() => !dirty || window.confirm("有未保存的修改，确定离开吗？"),
+	);
 });
 
 // 入口门控：token（自身或 /admin 复用）经 GET /user 静默验证后才显示「编辑」。
@@ -569,6 +575,11 @@ function kickToRelogin() {
 function validateForSave(): string {
 	if (!fm.title.trim()) return "标题（title）不能为空";
 	if (!fm.published) return "发布日期（published）不能为空";
+	// content schema 是 z.date()：非 ISO 日期会让 Cloudflare 构建整站炸掉，入口拦下
+	if (fm.published && !/^\d{4}-\d{2}-\d{2}$/.test(fm.published))
+		return "发布日期（published）格式应为 YYYY-MM-DD";
+	if (fm.updated && !/^\d{4}-\d{2}-\d{2}$/.test(fm.updated))
+		return "更新日期（updated）格式应为 YYYY-MM-DD";
 	return "";
 }
 
@@ -578,14 +589,19 @@ function syncMetaInputs() {
 		.split(/[,，]/)
 		.map((tag) => tag.trim())
 		.filter(Boolean);
-	// seriesOrderInput 可能是 number / null / ""（见上声明处注释），统一转成字符串再判空
+	// seriesOrderInput 可能是 number / null / ""（见上声明处注释），统一转成字符串再判空；
+	// 非数字（Number NaN）也落 null，别把 NaN 写进 frontmatter
 	const orderText = seriesOrderInput == null ? "" : String(seriesOrderInput);
-	fm.seriesOrder = orderText.trim() === "" ? null : Number(orderText);
+	const order = Number(orderText);
+	fm.seriesOrder =
+		orderText.trim() !== "" && Number.isFinite(order) ? order : null;
 	if (!fm.slug) {
-		// slug 不带日期前缀（与 /write 的口径一致）
-		const fallback = fileNameToSlug(fileName.replace(/\.(md|mdx)$/i, ""))
-			.replace(/^\d{4}-\d{2}-\d{2}-/, "")
-			.replace(/\/[^/]*$/, "");
+		// 无 slug 字段时保持「路径即路由」口径：astro 对无 slug 文件取「路径去扩展名」
+		// 为 entry.id（github-slugger 归一化，现有全小写 ASCII 文件名恒等），仅同样
+		// 去掉结尾 /index。旧实现取父目录（demo/guide/x → demo），保存即改路由 + 撞 slug
+		const fallback = fileName
+			.replace(/\.(md|mdx)$/i, "")
+			.replace(/\/index$/, "");
 		if (fallback) fm.slug = fallback;
 	}
 }
@@ -711,7 +727,8 @@ async function handleImageSelected(event: Event) {
 
 async function insertAtCursor(text: string) {
 	const el = bodyTextarea;
-	if (!el) {
+	// textarea 隐藏时拿不到真实光标：退化为追加到文末，否则插入点错乱
+	if (!el || el.offsetParent === null) {
 		body = `${body}${text}\n`;
 		return;
 	}

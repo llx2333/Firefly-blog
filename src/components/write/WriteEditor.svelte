@@ -8,6 +8,7 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onMount, tick } from "svelte";
+import { registerDirtyGuard } from "@/utils/dirty-guard";
 import {
 	clearVerified,
 	markVerified,
@@ -227,6 +228,15 @@ $effect(() => {
 	};
 	window.addEventListener("beforeunload", handler);
 	return () => window.removeEventListener("beforeunload", handler);
+});
+
+// 站内 swup 换页不走 beforeunload：编辑态把守卫登记进 swup visit:start 拦截
+// （utils/dirty-guard + swup-transitions），脏了弹确认，不脏直接放行
+$effect(() => {
+	if (view !== "editor") return;
+	return registerDirtyGuard(
+		() => !dirty || window.confirm("有未保存的修改，确定离开吗？"),
+	);
 });
 
 function storeToken(value: string) {
@@ -516,9 +526,10 @@ function newPost() {
 	conflictPending = false;
 	draftSha = null;
 	draftBanner = null;
+	// 先让标题联动落定（生成文件名/slug），再拍快照——顺序反了编辑器一打开就是脏态
+	if (seed?.title) onTitleBlur();
 	storedSnapshot = serializePostFile(fm, extras, body);
 	view = "editor";
-	if (seed?.title) onTitleBlur();
 }
 
 async function openPost(item: ListItem) {
@@ -628,12 +639,21 @@ function setUpdatedNow() {
 }
 
 function backToList() {
+	// 与 beforeunload/swup 拦截同一口径：脏了先确认，防手滑丢稿
+	if (dirty && !window.confirm("有未保存的修改，确定返回列表吗？")) return;
 	view = "list";
+	// 种子流（/write/?new=1）直接进编辑器、mount 时跳过了 loadList：返回列表补加载
+	if (!listLoaded && !listLoading) void loadList();
 }
 
 function validateForSave(): string {
 	if (!fm.title.trim()) return "标题（title）不能为空";
 	if (!fm.published) return "发布日期（published）不能为空";
+	// content schema 是 z.date()：非 ISO 日期会让 Cloudflare 构建整站炸掉，入口拦下
+	if (fm.published && !/^\d{4}-\d{2}-\d{2}$/.test(fm.published))
+		return "发布日期（published）格式应为 YYYY-MM-DD";
+	if (fm.updated && !/^\d{4}-\d{2}-\d{2}$/.test(fm.updated))
+		return "更新日期（updated）格式应为 YYYY-MM-DD";
 	if (!fileName.trim()) return "文件名不能为空";
 	if (!/^[^/\\]+$/.test(fileName.trim()))
 		return "文件名不能包含 / 或 \\（多级目录暂不支持）";
@@ -647,9 +667,11 @@ function syncMetaInputs() {
 		.map((tag) => tag.trim())
 		.filter(Boolean);
 	// type="number" 的 bind:value 经 svelte to_number() 会把值变成 number（填过）或 null（清空），
-	// 不能当字符串直接 .trim()，先归一化
+	// 不能当字符串直接 .trim()，先归一化；非数字（Number NaN）也落 null，别写 NaN 进 frontmatter
 	const orderText = seriesOrderInput == null ? "" : String(seriesOrderInput);
-	fm.seriesOrder = orderText.trim() === "" ? null : Number(orderText);
+	const order = Number(orderText);
+	fm.seriesOrder =
+		orderText.trim() !== "" && Number.isFinite(order) ? order : null;
 	if (!fm.slug) {
 		// 文件名带 YYYY-MM-DD- 前缀，slug 不带（与 onTitleBlur 的建议口径一致）
 		const fallback = fileNameToSlug(fileName.trim()).replace(
@@ -917,7 +939,9 @@ async function handleImageSelected(event: Event) {
 
 async function insertAtCursor(text: string) {
 	const el = bodyTextarea;
-	if (!el) {
+	// textarea 隐藏（手机端预览页签）时拿不到真实光标：退化为追加到文末，
+	// 否则 selectionStart 是旧值/0，插入点错乱还把焦点抢到看不见的输入框
+	if (!el || el.offsetParent === null) {
 		body = `${body}${text}\n`;
 		return;
 	}

@@ -166,8 +166,12 @@ async function togglePanel() {
 		open = false;
 		return;
 	}
-	const base = value
-		? noon(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, 1)
+	// 存量值可能不是 YYYY-MM 开头（frontmatter 被手改过的历史文件）：直接 slice 喂
+	// Number 会得到 NaN，42 个日期格全成 "NaN-NaN-NaN"，再点选就把 NaN 写回 value。
+	// 月份取 01-12，非法一律回退到今天所在月份做日历锚点。
+	const m = value ? /^(\d{4})-(0[1-9]|1[0-2])/.exec(value) : null;
+	const base = m
+		? noon(Number(m[1]), Number(m[2]) - 1, 1)
 		: noon(new Date().getFullYear(), new Date().getMonth(), 1);
 	view = base;
 	open = true;

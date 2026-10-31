@@ -542,34 +542,45 @@ const licenseHref = entry.data.licenseName
   }
 
   <script>
-    const card = document.getElementById('outdated-card');
-    const dateStr = card?.dataset.date;
+    // swup 换页后模块脚本不会重跑：包装成函数 + astro:page-load 重入
+    // （@swup/astro 在 page:view 钩子派发 astro:page-load），
+    // __outdatedInit 防「首次加载 + 换页」双绑定。同款模式见 BackToHome.astro。
+    function initOutdatedCard() {
+      const card = document.getElementById('outdated-card');
+      const dateStr = card?.dataset.date;
 
-    if (card && dateStr) {
-      // 讀取伺服器給的日期，用原生 Date 算出差異天數（避免向客戶端打包整個 dayjs）
-      const lastModified = new Date(dateStr);
-      const daysDiff = Math.floor(
-        (Date.now() - lastModified.getTime()) / 86400000,
-      );
-      const threshold = Number(card.dataset.threshold);
+      if (card && dateStr) {
+        // 讀取伺服器給的日期，用原生 Date 算出差異天數（避免向客戶端打包整個 dayjs）
+        const lastModified = new Date(dateStr);
+        const daysDiff = Math.floor(
+          (Date.now() - lastModified.getTime()) / 86400000,
+        );
+        const threshold = Number(card.dataset.threshold);
 
-      // 如果超過閾值，就顯示卡片與提示文字
-      if (daysDiff >= threshold) {
-        card.classList.remove('hidden');
+        // 如果超過閾值，就顯示卡片與提示文字
+        if (daysDiff >= threshold) {
+          card.classList.remove('hidden');
 
-        if (daysDiff >= 1) {
-          const textEl = document.getElementById('days-ago-text');
-          if (textEl && textEl.dataset.template) {
-            textEl.textContent = `，${textEl.dataset.template.replace("{days}", daysDiff.toString())}`;
-          }
+          if (daysDiff >= 1) {
+            const textEl = document.getElementById('days-ago-text');
+            if (textEl && textEl.dataset.template) {
+              textEl.textContent = `，${textEl.dataset.template.replace("{days}", daysDiff.toString())}`;
+            }
 
-          const warningEl = document.getElementById('outdated-warning');
-          if (warningEl) {
-            warningEl.classList.remove('hidden');
+            const warningEl = document.getElementById('outdated-warning');
+            if (warningEl) {
+              warningEl.classList.remove('hidden');
+            }
           }
         }
       }
     }
+
+    if (!window.__outdatedInit) {
+      window.__outdatedInit = true;
+      document.addEventListener('astro:page-load', initOutdatedCard);
+    }
+    initOutdatedCard();
   </script>
 
   {

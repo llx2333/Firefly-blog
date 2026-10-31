@@ -13,6 +13,7 @@
  *   与提交文章同权限，现有 token 天然够用。
  */
 import {
+	apiContentsPath,
 	type ContentsEntry,
 	decodeBase64,
 	describeGitHubError,
@@ -80,7 +81,7 @@ export async function fetchDraftFile(
 	try {
 		const res = await ghFetch(
 			token,
-			`${repoRoot}/contents/${encodeURI(path)}?ref=${DRAFT_BRANCH}&t=${Date.now()}`,
+			`${repoRoot}/contents/${apiContentsPath(path)}?ref=${DRAFT_BRANCH}&t=${Date.now()}`,
 		);
 		const file = (await res.json()) as {
 			sha: string;
@@ -110,15 +111,19 @@ async function writeDraftRaw(
 	message: string,
 ): Promise<{ sha: string }> {
 	const existing = await fetchDraftFile(token, path);
-	const res = await ghFetch(token, `${repoRoot}/contents/${encodeURI(path)}`, {
-		method: "PUT",
-		body: JSON.stringify({
-			message: `${message} ${CI_SKIP}`,
-			content: base64,
-			branch: DRAFT_BRANCH,
-			...(existing ? { sha: existing.sha } : {}),
-		}),
-	});
+	const res = await ghFetch(
+		token,
+		`${repoRoot}/contents/${apiContentsPath(path)}`,
+		{
+			method: "PUT",
+			body: JSON.stringify({
+				message: `${message} ${CI_SKIP}`,
+				content: base64,
+				branch: DRAFT_BRANCH,
+				...(existing ? { sha: existing.sha } : {}),
+			}),
+		},
+	);
 	const data = (await res.json()) as { content?: { sha?: string } };
 	if (!data.content?.sha) {
 		throw new GitHubError(
@@ -166,7 +171,7 @@ export async function deleteDraftFile(
 ): Promise<void> {
 	const existing = await fetchDraftFile(token, path);
 	if (!existing) return;
-	await ghFetch(token, `${repoRoot}/contents/${encodeURI(path)}`, {
+	await ghFetch(token, `${repoRoot}/contents/${apiContentsPath(path)}`, {
 		method: "DELETE",
 		body: JSON.stringify({
 			message: `write(draft): 清理 ${path.split("/").pop()} ${CI_SKIP}`,
@@ -184,7 +189,7 @@ export async function listDraftDir(
 	try {
 		const res = await ghFetch(
 			token,
-			`${repoRoot}/contents/${encodeURI(dir)}?ref=${DRAFT_BRANCH}&t=${Date.now()}`,
+			`${repoRoot}/contents/${apiContentsPath(dir)}?ref=${DRAFT_BRANCH}&t=${Date.now()}`,
 		);
 		const entries = (await res.json()) as ContentsEntry[];
 		return Array.isArray(entries)
@@ -269,6 +274,26 @@ export interface PublishOutcome {
 }
 
 /**
+ * master 上同名文件的 sha（不存在/查询失败都返回 undefined，按新建处理）。
+ * Contents API 更新已有文件必须带 sha，否则 422 —— 发布搬运插图常覆盖历史孤本。
+ */
+async function fetchMasterFileSha(
+	token: string,
+	path: string,
+): Promise<string | undefined> {
+	try {
+		const res = await ghFetch(
+			token,
+			`${repoRoot}/contents/${apiContentsPath(path)}?ref=${WRITE_REPO.branch}`,
+		);
+		const data = (await res.json()) as { sha?: string };
+		return typeof data.sha === "string" ? data.sha : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * 发布 = 提交 master + 草稿收尾。顺序固定先图后文：插图先落 master，
  * 文章 md 最后提交，让构建拿到的最终状态图文齐全。
  */
@@ -286,14 +311,21 @@ export async function publishPostFile(
 			try {
 				const file = await fetchDraftFile(token, img.path);
 				if (!file) continue;
-				await ghFetch(token, `${repoRoot}/contents/${encodeURI(img.path)}`, {
-					method: "PUT",
-					body: JSON.stringify({
-						message: `write: 搬运插图 ${img.name}`,
-						content: file.base64,
-						branch: WRITE_REPO.branch,
-					}),
-				});
+				// master 已有同名插图 → 必须带 sha 覆盖（缺 sha 的更新请求 422）
+				const masterSha = await fetchMasterFileSha(token, img.path);
+				await ghFetch(
+					token,
+					`${repoRoot}/contents/${apiContentsPath(img.path)}`,
+					{
+						method: "PUT",
+						body: JSON.stringify({
+							message: `write: 搬运插图 ${img.name}`,
+							content: file.base64,
+							branch: WRITE_REPO.branch,
+							...(masterSha ? { sha: masterSha } : {}),
+						}),
+					},
+				);
 				await deleteDraftFile(token, img.path);
 			} catch (error) {
 				warnings.push(

@@ -94,7 +94,8 @@ function toNumberOrNull(value: unknown): number | null {
  * frontmatter 存在但 YAML 语法非法时抛错（错误信息面向用户）。
  */
 export function parsePostFile(raw: string): ParsedPostFile {
-	const text = raw.replace(/\r\n/g, "\n");
+	// BOM 会挡住 "---\n" 开头判断 → 整篇被当正文、frontmatter 全丢，先剥掉
+	const text = raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 	if (!text.startsWith("---\n")) {
 		return { frontmatter: emptyFrontmatter(false), body: text, extras: {} };
 	}

@@ -24,6 +24,8 @@ declare global {
 		/** 按需加载 pagefind.js，由 Navbar.astro 的内联脚本挂载；幂等 */
 		__loadPagefind?: () => Promise<void>;
 		__pagefindLoading?: Promise<void>;
+		/** 文章页「内容过期」卡片是否已注册 astro:page-load 监听（posts/[...slug].astro） */
+		__outdatedInit?: boolean;
 		__fireflyMusic?: {
 			init: () => Promise<void>;
 			getState: () => {
