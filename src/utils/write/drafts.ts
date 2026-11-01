@@ -21,6 +21,8 @@ import {
 	GitHubError,
 	ghFetch,
 	IMAGES_DIR,
+	listPostFiles,
+	POSTS_DIR,
 	putFile,
 	WRITE_REPO,
 } from "./github";
@@ -349,4 +351,73 @@ export async function publishPostFile(
 		warnings.push("云端草稿清理失败，可稍后在草稿列表手动丢弃");
 	}
 	return { sha, warnings };
+}
+
+// ---------- 分类条「未发布」入口（登录态伪分类） ----------
+
+/**
+ * 「未发布」计数缓存（sessionStorage）：分类条出现在首页/归档/文章页等所有
+ * 主网格页面，TTL 内跨页面导航零请求。暂存/丢弃/发布成功后由编辑器失效，
+ * 下次导航重算。
+ */
+const DRAFT_COUNT_CACHE_KEY = "write-editor-draft-count";
+const DRAFT_COUNT_TTL_MS = 5 * 60 * 1000;
+
+export interface DraftCountCache {
+	at: number;
+	count: number;
+}
+
+export function readDraftCountCache(): DraftCountCache | null {
+	try {
+		const raw = sessionStorage.getItem(DRAFT_COUNT_CACHE_KEY);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as Partial<DraftCountCache>;
+		if (
+			typeof parsed.at !== "number" ||
+			typeof parsed.count !== "number" ||
+			Date.now() - parsed.at >= DRAFT_COUNT_TTL_MS
+		) {
+			return null;
+		}
+		return { at: parsed.at, count: parsed.count };
+	} catch {
+		return null;
+	}
+}
+
+export function writeDraftCountCache(count: number): void {
+	try {
+		sessionStorage.setItem(
+			DRAFT_COUNT_CACHE_KEY,
+			JSON.stringify({ at: Date.now(), count }),
+		);
+	} catch {
+		/* 隐私模式等：缓存不可用只是每次导航多两次请求 */
+	}
+}
+
+/** 草稿增删后调用（暂存/丢弃/发布/删文成功）：分类条计数立即失效 */
+export function invalidateDraftCountCache(): void {
+	try {
+		sessionStorage.removeItem(DRAFT_COUNT_CACHE_KEY);
+	} catch {
+		/* 忽略 */
+	}
+}
+
+/**
+ * 仅存于草稿分支的文章数（分类条「未发布」计数）＝ 草稿分支顶层目录 − master
+ * 顶层目录。两边都取顶层即可：草稿只能由编辑器创建且文件名禁 `/`（子目录文章
+ * 的暂存 master 上必有同路径，属「发布过的暂存」，不算「仅存」）。
+ */
+export async function countDraftOnlyPosts(token: string): Promise<number> {
+	const [master, drafts] = await Promise.all([
+		listPostFiles(token),
+		listDraftDir(token, POSTS_DIR),
+	]);
+	const masterPaths = new Set(master.map((entry) => entry.path));
+	return drafts.filter(
+		(entry) => /\.(md|mdx)$/i.test(entry.name) && !masterPaths.has(entry.path),
+	).length;
 }

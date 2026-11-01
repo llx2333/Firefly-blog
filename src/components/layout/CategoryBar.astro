@@ -168,6 +168,13 @@ function initialActive(categoryName: string): {
 </style>
 
 <script>
+  import { ensureVerified, resolveToken } from "@/utils/write/auth";
+  import {
+    countDraftOnlyPosts,
+    readDraftCountCache,
+    writeDraftCountCache,
+  } from "@/utils/write/drafts";
+
   let delayedCategoryBarScrollTimer: number | undefined;
 
   function getCategoryBarState(bar: HTMLElement, currentUrl: URL) {
@@ -410,18 +417,75 @@ function initialActive(categoryName: string): {
     }
   }
 
+  // --- 「未发布」入口（登录态伪分类，客户端注入） ---
+  // 仅存于 write-drafts 分支的文章不在任何构建产物里，「未发布」因此不是构建期
+  // 分类，而是 token 持有者的浏览器实时注入：对 GitHub 数「草稿分支顶层 − master
+  // 顶层」。匿名访客无 token → 不注入、零请求；登录但暂无草稿 → 不注入。
+  // pill 类名与模板里 category-pill 完全同款字符串，保证吃到同一份样式。
+  let draftPillBusy = false;
+  async function ensureDraftPill() {
+    const bar = document.getElementById("category-bar");
+    const scroll = bar?.querySelector<HTMLElement>(".category-scroll");
+    if (!scroll || draftPillBusy) return;
+    draftPillBusy = true;
+    try {
+      const existing = scroll.querySelector<HTMLAnchorElement>(
+        '.category-pill[data-category-name="__unpublished__"]',
+      );
+      const token = resolveToken();
+      // 无 token / token 失效：入口整个移除（登出后不留死链接）
+      if (!token || !(await ensureVerified(token))) {
+        existing?.remove();
+        return;
+      }
+      const cached = readDraftCountCache();
+      if (existing && cached && existing.dataset.count === String(cached.count))
+        return;
+      let count = cached ? cached.count : -1;
+      if (count < 0) {
+        try {
+          count = await countDraftOnlyPosts(token);
+          writeDraftCountCache(count);
+        } catch {
+          return; // GitHub 抖动：本次不打扰，下次导航重试
+        }
+      }
+      if (count <= 0) {
+        existing?.remove();
+        return;
+      }
+      const pill = existing ?? document.createElement("a");
+      pill.href = "/write/?drafts=1";
+      pill.className =
+        "category-pill focus-ring-inset text-sm px-4 py-1.5 whitespace-nowrap shrink-0 transition-colors duration-150 ease-out flex items-center justify-center";
+      pill.dataset.categoryName = "__unpublished__";
+      pill.dataset.count = String(count);
+      const badge = document.createElement("span");
+      badge.className = "pill-count";
+      badge.textContent = String(count);
+      pill.replaceChildren(document.createTextNode("未发布 "), badge);
+      if (!existing) scroll.prepend(pill);
+      updateScrollHint();
+    } finally {
+      draftPillBusy = false;
+    }
+  }
+
   updateCategoryBar();
   initCategoryBarInteractions();
   initScrollFeatures();
+  void ensureDraftPill();
   // 防止 Swup 切页重跑脚本时重复注册监听器/hooks
   if (!window.__categoryBarInit) {
     window.__categoryBarInit = true;
     document.addEventListener("astro:page-load", () => {
       updateCategoryBar();
       initScrollFeatures();
+      void ensureDraftPill();
     });
     document.addEventListener("swup:contentReplaced", () => {
       updateCategoryBar();
+      void ensureDraftPill();
       // 某些 swup 生命周期下 URL/DOM 状态同步稍晚，下一帧再校正一次避免状态残留
       requestAnimationFrame(() => {
         updateCategoryBar();

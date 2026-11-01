@@ -38,6 +38,13 @@ export interface ParsedPostFile {
 	extras: Record<string, unknown>;
 }
 
+/**
+ * 保留分类名：分类条「未发布」入口专指仅存于 write-drafts 分支的文章（客户端
+ * 推导，不进构建产物）。正式文章占用该名会在构建期生成同名真分类，与注入的
+ * 入口撞车——发布前 validateForSave 拦下（暂存不拦，草稿分类无构建语义）。
+ */
+export const RESERVED_CATEGORY = "未发布";
+
 /** 表单空态默认值（新建文章用） */
 export function emptyFrontmatter(draft = true): PostFrontmatter {
 	return {

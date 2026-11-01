@@ -8,6 +8,7 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onMount, tick } from "svelte";
+import { SvelteMap } from "svelte/reactivity";
 import { registerDirtyGuard } from "@/utils/dirty-guard";
 import {
 	clearVerified,
@@ -21,6 +22,7 @@ import {
 	draftFileText,
 	ensureDraftsBranch,
 	fetchDraftFile,
+	invalidateDraftCountCache,
 	listDraftDir,
 	probeDraftAgainstMaster,
 	publishPostFile,
@@ -31,6 +33,7 @@ import {
 	emptyFrontmatter,
 	type PostFrontmatter,
 	parsePostFile,
+	RESERVED_CATEGORY,
 	serializePostFile,
 } from "@/utils/write/frontmatter";
 import {
@@ -173,10 +176,21 @@ let savingDraft = $state(false);
 let loadingDraft = $state(false);
 let discardingDraft = $state(false);
 let draftBanner = $state<string | null>(null); // 非空 = 有未发布草稿，值为保存时间文案
-/** 草稿分支目录索引（path → 文件名），登录态下拉；含已在 master 的路径（列表徽标用） */
-let draftIndex = $state(new Map<string, string>());
+/**
+ * 草稿分支目录索引（path → 文件名），登录态下拉；含已在 master 的路径（列表徽标用）。
+ * 用 SvelteMap：暂存/丢弃走 .set()/.delete() 原地变更，$state 的普通 Map 不代理
+ * Map 变更（实测探针 26：请求发出但界面不刷新），SvelteMap 才触发响应。
+ */
+let draftIndex = new SvelteMap<string, string>();
+/** 草稿分组的展示标题（path → frontmatter 标题）：目录接口不含标题，逐个后台拉取；
+ *  无标题 / 解析失败回退文件名。同上用 SvelteMap（loadDraftTitles 靠 .set() 刷新行） */
+let draftTitles = new SvelteMap<string, string>();
 /** 最近一次持久化（master 或草稿分支）的全文快照，驱动 beforeunload 拦截 */
 let storedSnapshot = $state("");
+/** 草稿索引是否加载完（成败都算）：?drafts=1 聚焦流程「确定没有草稿」的早退依据 */
+let draftIndexLoaded = $state(false);
+/** 「云端草稿」分组聚焦高亮（?drafts=1 进入时短暂闪烁） */
+let draftGroupFlash = $state(false);
 
 const isLoggedIn = $derived(userLogin !== null && token !== "");
 const currentPath = $derived(
@@ -271,6 +285,7 @@ onMount(() => {
 		}
 		view = "list";
 		void loadList();
+		void focusDraftGroup();
 		return;
 	}
 	fetchCurrentUser(saved)
@@ -283,6 +298,7 @@ onMount(() => {
 			}
 			view = "list";
 			void loadList();
+			void focusDraftGroup();
 		})
 		.catch((error: unknown) => {
 			if (
@@ -307,6 +323,54 @@ function wantsNewPost() {
 	return new URLSearchParams(window.location.search).has("new");
 }
 
+/** URL 带 ?drafts=1（分类条「未发布」入口）：登录后聚焦「云端草稿」分组 */
+function wantsDraftFocus() {
+	return new URLSearchParams(window.location.search).has("drafts");
+}
+
+/** 草稿分组容器 id（模板内分组容器同款；?drafts=1 的聚焦目标） */
+const DRAFT_GROUP_ID = "draft-group";
+
+/** ?drafts=1 用完即清：刷新 / 分享链接不再触发聚焦 */
+function cleanDraftsParam() {
+	const url = new URL(window.location.href);
+	if (!url.searchParams.has("drafts")) return;
+	url.searchParams.delete("drafts");
+	window.history.replaceState(
+		{},
+		"",
+		`${url.pathname}${url.search}${url.hash}`,
+	);
+}
+
+/**
+ * 轮询等待「云端草稿」分组渲染（loadList → loadDraftIndex → draftOnlyItems 非空
+ * 是异步链，最长 10s）：等到则滚动 + 高亮 2s；列表与草稿索引都已载入且确定为空
+ * → toast 提示；列表失败 → 错误横幅自会提示，不打扰。
+ */
+async function focusDraftGroup() {
+	if (!wantsDraftFocus() || !isLoggedIn) return;
+	for (let waited = 0; waited < 10_000; waited += 200) {
+		await tick();
+		const group = document.getElementById(DRAFT_GROUP_ID);
+		if (group) {
+			cleanDraftsParam();
+			group.scrollIntoView({ behavior: "smooth", block: "center" });
+			draftGroupFlash = true;
+			setTimeout(() => (draftGroupFlash = false), 2000);
+			return;
+		}
+		if (listError) return;
+		if (listLoaded && draftIndexLoaded && draftOnlyItems.length === 0) {
+			cleanDraftsParam();
+			showToast("暂无未发布的草稿");
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	}
+	cleanDraftsParam();
+}
+
 async function handleLogin() {
 	const value = tokenInput.trim();
 	if (!value || loginBusy) return;
@@ -324,6 +388,7 @@ async function handleLogin() {
 		}
 		view = "list";
 		await loadList();
+		void focusDraftGroup();
 	} catch (error) {
 		loginError = describeGitHubError(error);
 	} finally {
@@ -347,6 +412,7 @@ async function loadList() {
 	listError = "";
 	listTotal = 0;
 	listDone = 0;
+	draftIndexLoaded = false;
 	try {
 		const files = await listPostFiles(token);
 		listTotal = files.length;
@@ -405,7 +471,8 @@ async function loadList() {
 /** 拉草稿分支目录索引（仅登录态；失败静默，只影响徽标与「云端草稿」分组） */
 async function loadDraftIndex() {
 	if (!isLoggedIn) {
-		draftIndex = new Map();
+		draftIndex.clear();
+		draftTitles.clear();
 		return;
 	}
 	try {
@@ -413,9 +480,35 @@ async function loadDraftIndex() {
 		for (const entry of await listDraftDir(token, POSTS_DIR)) {
 			if (/\.(md|mdx)$/i.test(entry.name)) map.set(entry.path, entry.name);
 		}
-		draftIndex = map;
+		draftIndex.clear();
+		for (const [path, name] of map) draftIndex.set(path, name);
+		void loadDraftTitles();
 	} catch {
 		/* 草稿索引失败不打扰主列表 */
+	} finally {
+		draftIndexLoaded = true;
+	}
+}
+
+/** 逐个拉「仅存草稿」的 frontmatter 标题（草稿数量少，N 次小请求换直观列表；
+ *  目录接口只有文件名，标题在文件内容里）。失败 / 无标题静默回退文件名。
+ *  已有标题的路径跳过（暂存时由 saveDraft 直接写入，避免重复请求与闪烁）。 */
+async function loadDraftTitles() {
+	if (!isLoggedIn) return;
+	const paths = [...draftIndex.keys()].filter(
+		(path) => !listItems.some((item) => item.path === path),
+	);
+	for (const path of paths) {
+		if (draftTitles.has(path)) continue;
+		try {
+			const file = await fetchDraftFile(token, path);
+			if (!file) continue;
+			const parsed = parsePostFile(draftFileText(file));
+			const title = parsed.frontmatter.title.trim();
+			if (title) draftTitles.set(path, title);
+		} catch {
+			/* 单篇失败回退文件名 */
+		}
 	}
 }
 
@@ -657,6 +750,9 @@ function validateForSave(): string {
 	if (!fileName.trim()) return "文件名不能为空";
 	if (!/^[^/\\]+$/.test(fileName.trim()))
 		return "文件名不能包含 / 或 \\（多级目录暂不支持）";
+	// 「未发布」是保留分类名（分类条入口专指仅存草稿），真分类不得占用，防构建期撞车
+	if (fm.category.trim() === RESERVED_CATEGORY)
+		return "「未发布」是保留分类名（分类条入口专用），请换一个分类";
 	return "";
 }
 
@@ -708,7 +804,12 @@ async function saveDraft() {
 		draftSha = result.sha;
 		draftBanner = null;
 		draftIndex.set(path, `${fileName.trim()}.${fileExt}`);
+		// 暂存时标题在手，直接写入分组缓存：返回列表零请求即显示标题
+		const draftTitle = fm.title.trim();
+		if (draftTitle) draftTitles.set(path, draftTitle);
+		else draftTitles.delete(path); // 标题被清空：下次列表重查，回退文件名
 		storedSnapshot = serializePostFile(fm, extras, body);
+		invalidateDraftCountCache();
 		showToast(`草稿已暂存到 ${DRAFT_BRANCH} 分支，线上不受影响`);
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -765,6 +866,8 @@ async function discardDraft() {
 		draftSha = null;
 		draftBanner = null;
 		draftIndex.delete(loadedPath);
+		draftTitles.delete(loadedPath);
+		invalidateDraftCountCache();
 		showToast("云端草稿已丢弃");
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -805,6 +908,7 @@ async function save() {
 		draftSha = null;
 		draftBanner = null;
 		draftIndex.delete(path);
+		invalidateDraftCountCache();
 		storedSnapshot = serializePostFile(fm, extras, body);
 		showToast(
 			warnings.length
@@ -871,6 +975,7 @@ async function removePost() {
 			/* 忽略 */
 		}
 		draftIndex.delete(loadedPath);
+		invalidateDraftCountCache();
 		draftSha = null;
 		draftBanner = null;
 		showToast("已删除，正在返回列表");
@@ -1120,7 +1225,11 @@ async function insertAtCursor(text: string) {
 					{/each}
 				</div>
 				{#if isLoggedIn && draftOnlyItems.length > 0}
-					<div class="mt-5 pt-4 border-t border-black/5 dark:border-white/10">
+					<div
+						id={DRAFT_GROUP_ID}
+						class="mt-5 pt-4 border-t border-black/5 dark:border-white/10"
+						class:draft-group-flash={draftGroupFlash}
+					>
 						<div class="text-xs text-50 mb-1.5">
 							云端草稿 · 仅存于 {DRAFT_BRANCH} 分支，尚未发布（{draftOnlyItems.length}）
 						</div>
@@ -1131,8 +1240,8 @@ async function insertAtCursor(text: string) {
 									class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
 									onclick={() => void openDraftOnly(draft.path)}
 								>
-									<span class="flex-1 min-w-0 truncate font-mono text-xs text-75">
-										{draft.name}
+									<span class="flex-1 min-w-0 truncate text-sm text-90">
+										{draftTitles.get(draft.path) ?? draft.name}
 									</span>
 									<span
 										class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
@@ -1486,3 +1595,21 @@ async function insertAtCursor(text: string) {
 		</div>
 	{/if}
 </div>
+
+<style>
+	/* ?drafts=1 进入时「云端草稿」分组的聚焦高亮：--primary 低透明度起闪，2s 渐隐 */
+	.draft-group-flash {
+		animation: draft-group-flash 2s ease-out both;
+	}
+	@keyframes draft-group-flash {
+		0%,
+		25% {
+			background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+			box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) 12%, transparent);
+		}
+		100% {
+			background-color: transparent;
+			box-shadow: 0 0 0 8px transparent;
+		}
+	}
+</style>

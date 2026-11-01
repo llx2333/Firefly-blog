@@ -25,6 +25,7 @@ import {
 	draftFileText,
 	ensureDraftsBranch,
 	fetchDraftFile,
+	invalidateDraftCountCache,
 	probeDraftAgainstMaster,
 	publishPostFile,
 	saveDraftImage,
@@ -34,6 +35,7 @@ import {
 	emptyFrontmatter,
 	type PostFrontmatter,
 	parsePostFile,
+	RESERVED_CATEGORY,
 	serializePostFile,
 } from "@/utils/write/frontmatter";
 import {
@@ -501,6 +503,7 @@ async function discardDraft() {
 		await deleteDraftFile(token, remotePath);
 		draftSha = null;
 		draftBanner = null;
+		invalidateDraftCountCache();
 		showToast("云端草稿已丢弃");
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -530,6 +533,7 @@ async function saveDraft() {
 		draftSha = result.sha;
 		draftBanner = null;
 		savedSnapshot = serializePostFile(fm, extras, body);
+		invalidateDraftCountCache();
 		showToast(`草稿已暂存到 ${DRAFT_BRANCH} 分支，线上不受影响`);
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -580,6 +584,9 @@ function validateForSave(): string {
 		return "发布日期（published）格式应为 YYYY-MM-DD";
 	if (fm.updated && !/^\d{4}-\d{2}-\d{2}$/.test(fm.updated))
 		return "更新日期（updated）格式应为 YYYY-MM-DD";
+	// 「未发布」是保留分类名（分类条入口专指仅存草稿），真分类不得占用，防构建期撞车
+	if (fm.category.trim() === RESERVED_CATEGORY)
+		return "「未发布」是保留分类名（分类条入口专用），请换一个分类";
 	return "";
 }
 
@@ -634,6 +641,7 @@ async function save() {
 		draftSha = null;
 		draftBanner = null;
 		savedSnapshot = serializePostFile(fm, extras, body);
+		invalidateDraftCountCache();
 		showToast(
 			warnings.length
 				? `已发布；${warnings.length} 项草稿收尾未完成：${warnings[0]}`
