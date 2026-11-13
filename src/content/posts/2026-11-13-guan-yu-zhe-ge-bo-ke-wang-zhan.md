@@ -12,7 +12,7 @@ slug: guan-yu-zhe-ge-bo-ke-wang-zhan
 
 - 我的博客项目仓库：[https://github.com/llx2333/Firefly-blog](https://github.com/llx2333/Firefly-blog)
 - 博客网址（当前）：[https://blog.adoai.me](https://blog.adoai.me)
-- 博客网址（github pages镜像）：[https://blog-img.adoai.me](https://blog-img.adoai.me)
+- 博客网址（github pages镜像）：[https://blog-gh-img.adoai.me](https://blog-gh-img.adoai.me)
 
 **特色功能：**
 
