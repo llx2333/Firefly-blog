@@ -232,13 +232,16 @@ export async function fetchFile(
 	return { text: decodeBase64(file.content), sha: file.sha };
 }
 
-/** 创建 / 更新文件；新建不带 sha，更新必须带 sha */
-export async function putFile(
+/**
+ * 创建 / 更新二进制文件（图片等；content 传 base64 原始字节）。
+ * branch 缺省 master；更新已有文件必须带 sha（草稿分支同款契约）。
+ */
+export async function putRawFile(
 	token: string,
 	path: string,
-	text: string,
+	base64: string,
 	message: string,
-	sha?: string,
+	opts: { branch?: string; sha?: string } = {},
 ): Promise<{ sha: string }> {
 	const res = await ghFetch(
 		token,
@@ -247,9 +250,9 @@ export async function putFile(
 			method: "PUT",
 			body: JSON.stringify({
 				message,
-				content: encodeBase64(text),
-				branch: WRITE_REPO.branch,
-				...(sha ? { sha } : {}),
+				content: base64,
+				branch: opts.branch ?? WRITE_REPO.branch,
+				...(opts.sha ? { sha: opts.sha } : {}),
 			}),
 		},
 	);
@@ -262,6 +265,17 @@ export async function putFile(
 		);
 	}
 	return { sha: data.content.sha };
+}
+
+/** 创建 / 更新文本文件；新建不带 sha，更新必须带 sha */
+export function putFile(
+	token: string,
+	path: string,
+	text: string,
+	message: string,
+	sha?: string,
+): Promise<{ sha: string }> {
+	return putRawFile(token, path, encodeBase64(text), message, { sha });
 }
 
 /** 删除文件（必须带 sha） */

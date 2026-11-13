@@ -1,13 +1,13 @@
 /**
  * 云端草稿分支（write-drafts）：「暂存草稿」与「发布」分离的存储侧实现。
  *
- * - 暂存草稿：文章 md / 插图写到 write-drafts 分支同路径，commit message 带
+ * - 暂存草稿：文章 md 写到 write-drafts 分支同路径，commit message 带
  *   [CI Skip]（Cloudflare Pages 对含该标记的提交跳过构建，preview 同样跳过，
  *   官方：developers.cloudflare.com/pages/configuration/git-integration），
  *   master 不动 → 线上零影响、零构建。
- * - 发布（publishPostFile）：① 草稿分支插图目录整体搬回 master（先图后文，
- *   让构建拿到完整资源；顺带清掉历史孤本，自愈多设备场景）→ ② 提交文章 md →
- *   ③ 清理草稿 md。①③ 失败不阻塞发布本体，失败项进 warnings。
+ * - 插图随文保存：插入/粘贴只存浏览器内存（见 images.ts），暂存时把待上传图
+ *   传到草稿分支本文子目录、发布时传到 master（先图后文）。旧平铺路径在保存时
+ *   自动迁入文章子目录；发布收尾只清本文子目录（被引用搬 master、未引用删除）。
  * - 分支缺失时惰性自建（以 master HEAD 为起点）。GitHub「Create a reference」
  *   的 fine-grained token 权限 = Contents(write)（docs.github.com/en/rest/git/refs），
  *   与提交文章同权限，现有 token 天然够用。
@@ -20,12 +20,26 @@ import {
 	encodeBase64,
 	GitHubError,
 	ghFetch,
+	IMAGE_PUBLIC_PREFIX,
 	IMAGES_DIR,
 	listPostFiles,
 	POSTS_DIR,
 	putFile,
+	putRawFile,
 	WRITE_REPO,
 } from "./github";
+import {
+	articleSlugDir,
+	type ImagePlan,
+	type ImageUpload,
+	imagePublicDirFor,
+	imageUrlToRepoPath,
+	type PendingImage,
+	postImageRefs,
+	reconcileRefs,
+	rewriteImageRefs,
+	safeDecode,
+} from "./images";
 
 export const DRAFT_BRANCH = "write-drafts";
 
@@ -113,28 +127,10 @@ async function writeDraftRaw(
 	message: string,
 ): Promise<{ sha: string }> {
 	const existing = await fetchDraftFile(token, path);
-	const res = await ghFetch(
-		token,
-		`${repoRoot}/contents/${apiContentsPath(path)}`,
-		{
-			method: "PUT",
-			body: JSON.stringify({
-				message: `${message} ${CI_SKIP}`,
-				content: base64,
-				branch: DRAFT_BRANCH,
-				...(existing ? { sha: existing.sha } : {}),
-			}),
-		},
-	);
-	const data = (await res.json()) as { content?: { sha?: string } };
-	if (!data.content?.sha) {
-		throw new GitHubError(
-			"server",
-			0,
-			"草稿已保存但未返回版本号，请刷新后再继续编辑",
-		);
-	}
-	return { sha: data.content.sha };
+	return putRawFile(token, path, base64, `${message} ${CI_SKIP}`, {
+		branch: DRAFT_BRANCH,
+		...(existing ? { sha: existing.sha } : {}),
+	});
 }
 
 /** 暂存文章 md 到草稿分支 */
@@ -152,18 +148,185 @@ export function saveDraftPost(
 	);
 }
 
-/** 插图上传到草稿分支（base64 原始字节，发布时统一搬回 master） */
-export function saveDraftImage(
+// ---------- 插图随文保存（裁决纯逻辑见 images.ts） ----------
+
+export interface PreparedImages {
+	/** 迁移/归一化改写后的正文（上传目标 URL 已写进引用） */
+	body: string;
+	plan: ImagePlan;
+	/** 非阻塞提示（迁移失败 / 发布校验图片不在线上），由调用方并进 toast */
+	warnings: string[];
+}
+
+/**
+ * 保存前的插图裁决与编排（暂存/发布共用）：
+ * ① 旧平铺路径迁移：正文里的 /assets/images/posts/名字.png（无子目录）若在
+ *    草稿分支旧路径找得到 → 搬进本文子目录并改写引用；找不到则原样保留
+ *    （Sveltia 传到 master 的图原生可见，不动）；
+ * ② reconcile 裁决（重命名 / 目录归一化 / 删图）并改写正文；
+ * ③ 发布目标额外校验未知引用：master 与草稿分支都没有 → 警告「路径可能有误」；
+ *    草稿分支有的由发布收尾搬运，不算缺失。任何失败都不阻塞 md 提交。
+ */
+export async function prepareImageSaves(
 	token: string,
 	fileName: string,
-	base64: string,
-): Promise<{ sha: string }> {
-	return writeDraftRaw(
-		token,
-		`${IMAGES_DIR}/${fileName}`,
-		base64,
-		`write(draft): 上传插图 ${fileName}`,
-	);
+	body: string,
+	pending: ReadonlyMap<string, PendingImage>,
+	target: "draft" | "master",
+): Promise<PreparedImages> {
+	const warnings: string[] = [];
+	const articleDirUrl = imagePublicDirFor(fileName);
+	const rewrites = new Map<string, string>();
+
+	// ① 旧平铺路径迁移（只动草稿分支，master 从不自动删）
+	for (const ref of postImageRefs(body)) {
+		const decoded = safeDecode(ref.url);
+		const repoPath = imageUrlToRepoPath(decoded);
+		if (!repoPath) continue;
+		const rest = decoded.slice(IMAGE_PUBLIC_PREFIX.length + 1);
+		if (rest.includes("/") || pending.has(decoded)) continue;
+		const name = repoPath.split("/").pop() ?? repoPath;
+		try {
+			const file = await fetchDraftFile(token, repoPath);
+			if (!file) continue;
+			const newPath = `${IMAGES_DIR}/${articleSlugDir(fileName)}/${name}`;
+			await putRawFile(
+				token,
+				newPath,
+				file.base64,
+				`write(draft): 迁移插图 ${name}`,
+				{ branch: DRAFT_BRANCH },
+			);
+			await deleteDraftFile(token, repoPath);
+			rewrites.set(decoded, `${articleDirUrl}/${name}`);
+		} catch (error) {
+			warnings.push(`旧插图 ${name} 迁移失败：${describeGitHubError(error)}`);
+		}
+	}
+
+	// ② reconcile 裁决 + 正文改写（重命名/目录归一化落进正文，预览即时跟随）
+	const plan = reconcileRefs(postImageRefs(body), pending, articleDirUrl);
+	for (const upload of plan.uploads) {
+		if (upload.refUrl !== upload.url) rewrites.set(upload.refUrl, upload.url);
+	}
+	for (const rename of plan.renames) {
+		rewrites.set(rename.fromUrl, rename.toUrl);
+	}
+	const nextBody =
+		rewrites.size > 0
+			? rewriteImageRefs(body, (decoded) => rewrites.get(decoded) ?? null)
+			: body;
+
+	// ③ 发布目标：未知引用在线校验（非阻塞，失败项进 warnings）
+	if (target === "master") {
+		for (const url of plan.unknownUrls) {
+			const repoPath = imageUrlToRepoPath(url);
+			if (!repoPath) continue;
+			const name = repoPath.split("/").pop() ?? repoPath;
+			try {
+				if ((await fetchMasterFileSha(token, repoPath)) !== undefined) continue;
+				if ((await fetchDraftFile(token, repoPath)) !== null) continue;
+				warnings.push(
+					`图片 ${name} 不在线上（路径可能有误），发布后该图会无法显示`,
+				);
+			} catch {
+				/* 校验失败不阻塞发布 */
+			}
+		}
+	}
+
+	return { body: nextBody, plan, warnings };
+}
+
+export interface UploadOutcome {
+	/** 上传成功的公开 URL（正文引用即此地址） */
+	uploadedUrls: string[];
+	/** 失败项（不阻塞 md 提交；待上传表保留，下次保存自动重试） */
+	failed: Array<{ url: string; reason: string }>;
+}
+
+/**
+ * 待上传图逐张上传：draft → write-drafts 本文子目录（[CI Skip]）；
+ * master → 先取现值 sha 再覆盖写。重命名项成功后顺手清理草稿分支旧名文件
+ * （master 侧从不自动删）。alreadyUploaded 里的 URL 跳过（暂存后重复保存免重传）。
+ */
+export async function uploadPendingImages(
+	token: string,
+	uploads: ImageUpload[],
+	target: "draft" | "master",
+	alreadyUploaded?: ReadonlySet<string>,
+	onProgress?: (done: number, total: number) => void,
+): Promise<UploadOutcome> {
+	const todo = uploads.filter((u) => !alreadyUploaded?.has(u.url));
+	const uploadedUrls: string[] = [];
+	const failed: Array<{ url: string; reason: string }> = [];
+	if (todo.length > 0 && target === "draft") {
+		await ensureDraftsBranch(token);
+	}
+	let done = 0;
+	for (const upload of todo) {
+		const repoPath = imageUrlToRepoPath(upload.url);
+		const name = upload.url.split("/").pop() ?? upload.url;
+		if (!repoPath) {
+			failed.push({ url: upload.url, reason: "URL 不属于本站插图目录" });
+			done++;
+			onProgress?.(done, todo.length);
+			continue;
+		}
+		try {
+			if (target === "draft") {
+				await putRawFile(
+					token,
+					repoPath,
+					upload.base64,
+					`write(draft): 上传插图 ${name}`,
+					{ branch: DRAFT_BRANCH },
+				);
+			} else {
+				const sha = await fetchMasterFileSha(token, repoPath);
+				await putRawFile(
+					token,
+					repoPath,
+					upload.base64,
+					`write: 上传插图 ${name}`,
+					{
+						...(sha ? { sha } : {}),
+					},
+				);
+			}
+			// 重命名成功 → 草稿分支旧名文件清理（不存在则 no-op）
+			if (upload.renamedFromUrl) {
+				const oldPath = imageUrlToRepoPath(upload.renamedFromUrl);
+				if (oldPath && oldPath !== repoPath) {
+					await deleteDraftFile(token, oldPath).catch(() => {
+						/* 尽力清理 */
+					});
+				}
+			}
+			uploadedUrls.push(upload.url);
+		} catch (error) {
+			failed.push({ url: upload.url, reason: describeGitHubError(error) });
+		}
+		done++;
+		onProgress?.(done, todo.length);
+	}
+	return { uploadedUrls, failed };
+}
+
+/** 删文时清理草稿分支本文插图子目录（尽力而为，失败静默） */
+export async function removeArticleDraftImages(
+	token: string,
+	fileName: string,
+): Promise<void> {
+	const dir = `${IMAGES_DIR}/${articleSlugDir(fileName)}`;
+	const entries = await listDraftDir(token, dir);
+	for (const entry of entries) {
+		try {
+			await deleteDraftFile(token, entry.path);
+		} catch {
+			/* 尽力清理 */
+		}
+	}
 }
 
 /** 删除草稿分支文件（不存在则视为已清理，直接返回） */
@@ -296,8 +459,10 @@ async function fetchMasterFileSha(
 }
 
 /**
- * 发布 = 提交 master + 草稿收尾。顺序固定先图后文：插图先落 master，
- * 文章 md 最后提交，让构建拿到的最终状态图文齐全。
+ * 发布 = ① 收尾草稿插图（先图后文）→ ② 提交 master 正文 → ③ 清理草稿 md。
+ * ① 只处理本文插图子目录：被最终正文引用的搬 master（先取现值 sha 覆盖写），
+ * 未被引用的从草稿删除（= 用户删掉的图随发布自动清理）；其他文章的子目录与
+ * 旧平铺文件一律不动，master 上的文件从不自动删。
  */
 export async function publishPostFile(
 	token: string,
@@ -307,31 +472,35 @@ export async function publishPostFile(
 	masterSha?: string,
 ): Promise<PublishOutcome> {
 	const warnings: string[] = [];
+	const articleDir = articleSlugDir(path.slice(POSTS_DIR.length + 1));
+	const draftImageDir = `${IMAGES_DIR}/${articleDir}`;
 	try {
-		const images = await listDraftDir(token, IMAGES_DIR);
+		const images = await listDraftDir(token, draftImageDir);
+		const referenced = new Set(
+			postImageRefs(text).map((ref) => safeDecode(ref.url)),
+		);
 		for (const img of images) {
+			const publicUrl = `${IMAGE_PUBLIC_PREFIX}/${articleDir}/${img.name}`;
 			try {
-				const file = await fetchDraftFile(token, img.path);
-				if (!file) continue;
-				// master 已有同名插图 → 必须带 sha 覆盖（缺 sha 的更新请求 422）
-				const masterSha = await fetchMasterFileSha(token, img.path);
-				await ghFetch(
-					token,
-					`${repoRoot}/contents/${apiContentsPath(img.path)}`,
-					{
-						method: "PUT",
-						body: JSON.stringify({
-							message: `write: 搬运插图 ${img.name}`,
-							content: file.base64,
-							branch: WRITE_REPO.branch,
-							...(masterSha ? { sha: masterSha } : {}),
-						}),
-					},
-				);
-				await deleteDraftFile(token, img.path);
+				if (referenced.has(publicUrl)) {
+					const file = await fetchDraftFile(token, img.path);
+					if (!file) continue;
+					// master 已有同名插图 → 必须带 sha 覆盖（缺 sha 的更新请求 422）
+					const masterFileSha = await fetchMasterFileSha(token, img.path);
+					await putRawFile(
+						token,
+						img.path,
+						file.base64,
+						`write: 发布插图 ${img.name}`,
+						{ ...(masterFileSha ? { sha: masterFileSha } : {}) },
+					);
+					await deleteDraftFile(token, img.path);
+				} else {
+					await deleteDraftFile(token, img.path);
+				}
 			} catch (error) {
 				warnings.push(
-					`插图 ${img.name} 搬运失败：${describeGitHubError(error)}`,
+					`插图 ${img.name} 收尾失败：${describeGitHubError(error)}`,
 				);
 			}
 		}

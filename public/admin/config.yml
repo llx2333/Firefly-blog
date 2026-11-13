@@ -9,8 +9,12 @@ backend:
 
 site_url: https://blog.adoai.me
 
-# 上传的图片落在 public/assets/images/posts/，引用一律写 /assets/images/posts/xxx 绝对路径：
-# 封面与正文通吃，不受文章所在子目录层级影响（主题 CoverImage 支持以 / 开头的 public 路径）
+# Sveltia（/admin）上传的图片仍平铺在 public/assets/images/posts/，引用写
+# /assets/images/posts/xxx 绝对路径：封面与正文通吃，不受文章所在子目录层级影响
+# （主题 CoverImage 支持以 / 开头的 public 路径）。
+# /write 两个编辑器（PostEditor/WriteEditor）用按文章子目录约定：
+# /assets/images/posts/<文章文件名去扩展名>/xxx，插图随文保存（暂存/发布时才上传），
+# 保存时自动把旧平铺引用迁入文章子目录（utils/write/images + drafts）。
 media_folder: public/assets/images/posts
 public_folder: /assets/images/posts
 

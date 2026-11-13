@@ -4,13 +4,16 @@
  * （#post-edit-slot，token 验证通过才显示）。点开 → 行内验证 token →
  * 进入编辑态时隐藏文章卡片其余部分与 #post-extras。
  * 「暂存草稿」写 write-drafts 分支（[CI Skip]，零构建零上线），「发布」提交
- * master 触发 Cloudflare Pages 构建；插图随暂存走草稿分支，发布时统一搬运。
+ * master 触发 Cloudflare Pages 构建。插图随文保存：插入/粘贴只存浏览器内存
+ * （预览用 blob URL 即时显示），暂存/发布时才随文上传到对应分支；正文里
+ * 手改路径 = 重命名、删掉引用行 = 删图，保存时统一裁决（utils/write/images）。
  * 远端 404（本地预览文章尚未提交过）→ 以当前标题起草；该路径若有云端草稿则
  * 直接载入草稿内容，发布即新建。
  */
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onDestroy, tick } from "svelte";
+import { SvelteMap } from "svelte/reactivity";
 import { registerDirtyGuard } from "@/utils/dirty-guard";
 import {
 	clearVerified,
@@ -26,10 +29,11 @@ import {
 	ensureDraftsBranch,
 	fetchDraftFile,
 	invalidateDraftCountCache,
+	prepareImageSaves,
 	probeDraftAgainstMaster,
 	publishPostFile,
-	saveDraftImage,
 	saveDraftPost,
+	uploadPendingImages,
 } from "@/utils/write/drafts";
 import {
 	emptyFrontmatter,
@@ -43,12 +47,29 @@ import {
 	fetchCurrentUser,
 	fetchFile,
 	GitHubError,
-	IMAGE_PUBLIC_PREFIX,
 	POSTS_DIR,
 } from "@/utils/write/github";
+import {
+	base64ToObjectUrl,
+	buildImageMarkdown,
+	defaultImageName,
+	type ImagePlan,
+	imageExtFrom,
+	imageFilesFromClipboard,
+	imagePublicDirFor,
+	imageUrlToRepoPath,
+	localizePreviewImages,
+	mimeFromName,
+	type PendingImage,
+	postImageRefs,
+	reconcileRefs,
+	safeDecode,
+	sanitizeImageName,
+} from "@/utils/write/images";
 import { persistToken } from "@/utils/write/session";
 import { timestampPrefix, todayDateString } from "@/utils/write/slug";
 import DateField from "./DateField.svelte";
+import ImageNameDialog from "./ImageNameDialog.svelte";
 
 let {
 	fileName,
@@ -86,7 +107,7 @@ const sanitizeConfig: sanitizeHtml.Options = {
 		pre: ["class"],
 		div: ["class"],
 	},
-	allowedSchemes: ["http", "https", "mailto"],
+	allowedSchemes: ["http", "https", "mailto", "blob"],
 };
 
 // --- 全局状态 ---
@@ -131,9 +152,34 @@ let seriesOrderInput = $state<string | number | null>("");
 let showFrontmatter = $state(false);
 let mobileTab = $state<"edit" | "preview">("edit");
 let saving = $state(false);
-let uploadingImage = $state(false);
 let bodyTextarea = $state<HTMLTextAreaElement | null>(null);
 let imageInput = $state<HTMLInputElement | null>(null);
+
+// --- 插图随文保存（裁决纯逻辑见 utils/write/images） ---
+/**
+ * 待上传图（公开 URL → 字节 + 本地预览 blob）：插入/粘贴只进内存，
+ * 暂存时传草稿分支、发布时传 master；刷新即丢，与未保存文字同级语义。
+ */
+let pendingImages = new SvelteMap<string, PendingImage>();
+/** 命名卡当前处理的图片（选完文件弹出，确认后进 pendingImages） */
+let nameDialog = $state<{
+	base64: string;
+	objectUrl: string;
+	suggested: string;
+	ext: string;
+} | null>(null);
+/** 插图上传进度（暂存/发布按钮文案用） */
+let imageUploadDone = $state(0);
+let imageUploadTotal = $state(0);
+/** 草稿分支图预览缓存（URL → blob URL）：master 没有的图从草稿分支拉一次展示 */
+let draftPreviewUrls = new SvelteMap<string, string>();
+// 非响应式会话缓存：草稿预取去重、本会话已上传过的目标分支 URL（重复保存免重传）
+const draftPreviewTried = new Set<string>();
+const draftPreviewInFlight = new Set<string>();
+const draftUploadedUrls = new Set<string>();
+const masterUploadedUrls = new Set<string>();
+/** 裁决产生的旧地址 → blob 备查：正文引用要到保存时才改写，期间预览靠它不断链 */
+const retiredPreviewUrls = new Map<string, string>();
 /** 待机态预取远端正文：点「编辑」不必再等一次 Contents API（本机实测单次往返约 5s） */
 let prefetchToken = "";
 let prefetchPromise: Promise<{ text: string; sha: string } | null> | null =
@@ -167,12 +213,111 @@ const preview = $derived.by(() => {
 		const html = marked.parse(body, { async: false, gfm: true });
 		if (typeof html !== "string")
 			return { html: "", error: "预览返回异常结果" };
-		return { html: sanitizeHtml(html, sanitizeConfig), error: "" };
+		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再消毒
+		const localized = localizePreviewImages(html, resolvePreviewImage);
+		return { html: sanitizeHtml(localized, sanitizeConfig), error: "" };
 	} catch (error) {
 		return {
 			html: "",
 			error: error instanceof Error ? error.message : String(error),
 		};
+	}
+});
+
+// --- 插图实时裁决：手改路径 = 重命名、删引用行 = 删图（保存时同一套规则） ---
+
+const imagePlan = $derived(
+	reconcileRefs(
+		postImageRefs(body),
+		pendingImages,
+		imagePublicDirFor(fileName),
+	),
+);
+
+/** 待上传表与正文引用同步（重键/清理）；保存流程改写正文后也调用这一份 */
+function applyImagePlan(plan: ImagePlan) {
+	for (const url of plan.droppedUrls) {
+		const entry = pendingImages.get(url);
+		if (entry) {
+			pendingImages.delete(url);
+			// 同一 blob 可能仍被 retired 备查键引用，先确认没人用再回收
+			if (![...retiredPreviewUrls.values()].includes(entry.objectUrl)) {
+				URL.revokeObjectURL(entry.objectUrl);
+			}
+		}
+	}
+	for (const rename of plan.renames) {
+		// 防御：from===to 的自改名对 SvelteMap delete+set 每次都发信号，
+		// 会让派生 plan 无限重算（实测 effect_update_depth_exceeded 冻死整组件）
+		if (rename.fromUrl === rename.toUrl) continue;
+		const entry = pendingImages.get(rename.fromUrl);
+		if (!entry) continue;
+		retiredPreviewUrls.set(rename.fromUrl, entry.objectUrl);
+		pendingImages.delete(rename.fromUrl);
+		pendingImages.set(rename.toUrl, entry);
+	}
+	// 目录写法差异的命中上传（untitled/旧平铺引用）：正文要到保存才改写，
+	// 期间旧写法 URL 也指向同一 blob，备查防预览断链
+	for (const upload of plan.uploads) {
+		const entry = pendingImages.get(upload.url);
+		if (
+			entry &&
+			upload.refUrl !== upload.url &&
+			!pendingImages.has(upload.refUrl)
+		) {
+			retiredPreviewUrls.set(upload.refUrl, entry.objectUrl);
+		}
+	}
+}
+
+// 派生 plan 与清理互相收敛（重键后精确命中、删图后无引用），不会循环
+$effect(() => {
+	applyImagePlan(imagePlan);
+});
+
+/** 预览 img src 解析：待上传 blob → 重命名前旧地址 → 草稿分支缓存 blob → 原样 */
+function resolvePreviewImage(url: string): string | null {
+	return (
+		pendingImages.get(url)?.objectUrl ??
+		retiredPreviewUrls.get(url) ??
+		draftPreviewUrls.get(url) ??
+		null
+	);
+}
+
+// 草稿分支图预取：非待上传的站内图若 master 没有（预览会裂图），从草稿分支拉
+// 一次转 blob 展示。每 URL 每会话只试一次，失败静默（已发布图原 URL 天然可用）。
+$effect(() => {
+	if (mode !== "editing" || !editorReady || !token) return;
+	for (const ref of postImageRefs(body)) {
+		const url = safeDecode(ref.url);
+		if (
+			pendingImages.has(url) ||
+			draftPreviewUrls.has(url) ||
+			draftPreviewTried.has(url) ||
+			draftPreviewInFlight.has(url)
+		) {
+			continue;
+		}
+		const repoPath = imageUrlToRepoPath(url);
+		if (!repoPath) continue;
+		draftPreviewInFlight.add(url);
+		void fetchDraftFile(token, repoPath)
+			.then((file) => {
+				if (file) {
+					draftPreviewUrls.set(
+						url,
+						base64ToObjectUrl(file.base64, mimeFromName(repoPath)),
+					);
+				}
+			})
+			.catch(() => {
+				/* 静默：预览回退原 URL */
+			})
+			.finally(() => {
+				draftPreviewInFlight.delete(url);
+				draftPreviewTried.add(url);
+			});
 	}
 });
 
@@ -261,6 +406,13 @@ function setSiblingsHidden(hidden: boolean) {
 
 onDestroy(() => {
 	setSiblingsHidden(false);
+	// 待上传图的本地预览随组件销毁回收（图片本体随刷新丢弃，与未保存文字同级）
+	for (const entry of pendingImages.values()) {
+		URL.revokeObjectURL(entry.objectUrl);
+	}
+	for (const objectUrl of retiredPreviewUrls.values()) {
+		URL.revokeObjectURL(objectUrl);
+	}
 });
 
 // 编辑态隐藏文章卡片其余部分与附加区，退出时恢复
@@ -512,7 +664,7 @@ async function discardDraft() {
 	}
 }
 
-/** 暂存草稿：写 write-drafts 分支（[CI Skip]），master 不动、线上零构建 */
+/** 暂存草稿：待上传图先传 write-drafts 本文子目录，再提交 md（[CI Skip]） */
 async function saveDraft() {
 	editorError = "";
 	if (!isLoggedIn) {
@@ -524,17 +676,42 @@ async function saveDraft() {
 	try {
 		syncMetaInputs();
 		await ensureDraftsBranch(token);
+		const prepared = await prepareImageSaves(
+			token,
+			fileName,
+			body,
+			pendingImages,
+			"draft",
+		);
+		body = prepared.body;
+		applyImagePlan(prepared.plan);
+		const outcome = await uploadPendingImages(
+			token,
+			prepared.uploads,
+			"draft",
+			draftUploadedUrls,
+			(done, total) => {
+				imageUploadDone = done;
+				imageUploadTotal = total;
+			},
+		);
+		for (const url of outcome.uploadedUrls) draftUploadedUrls.add(url);
+		const text = serializePostFile(fm, extras, body);
 		const result = await saveDraftPost(
 			token,
 			remotePath,
-			serializePostFile(fm, extras, body),
+			text,
 			fm.title.trim() || fileName,
 		);
 		draftSha = result.sha;
 		draftBanner = null;
-		savedSnapshot = serializePostFile(fm, extras, body);
+		savedSnapshot = text;
 		invalidateDraftCountCache();
-		showToast(`草稿已暂存到 ${DRAFT_BRANCH} 分支，线上不受影响`);
+		showToast(
+			outcome.failed.length
+				? `草稿已暂存；${outcome.failed.length} 张插图上传失败（本地预览仍在，再点一次暂存可重试）：${outcome.failed[0].reason}`
+				: `草稿已暂存到 ${DRAFT_BRANCH} 分支，线上不受影响`,
+		);
 	} catch (error) {
 		editorError = describeGitHubError(error);
 		if (error instanceof GitHubError && error.kind === "unauthorized") {
@@ -542,6 +719,8 @@ async function saveDraft() {
 		}
 	} finally {
 		savingDraft = false;
+		imageUploadTotal = 0;
+		imageUploadDone = 0;
 	}
 }
 
@@ -613,7 +792,7 @@ function syncMetaInputs() {
 	}
 }
 
-/** 发布：插图先搬 master，再提交正文，最后清理草稿（收尾失败进 warnings） */
+/** 发布：待上传图先传 master（先图后文），再提交正文，最后清理草稿 */
 async function save() {
 	editorError = "";
 	conflictPending = false;
@@ -630,21 +809,57 @@ async function save() {
 	saving = true;
 	try {
 		syncMetaInputs();
+		const prepared = await prepareImageSaves(
+			token,
+			fileName,
+			body,
+			pendingImages,
+			"master",
+		);
+		body = prepared.body;
+		applyImagePlan(prepared.plan);
+		const outcome = await uploadPendingImages(
+			token,
+			prepared.uploads,
+			"master",
+			masterUploadedUrls,
+			(done, total) => {
+				imageUploadDone = done;
+				imageUploadTotal = total;
+			},
+		);
+		// 上传成功 → master 原生可见，移出待上传表（blob 回收；草稿副本由发布收尾清理）
+		for (const url of outcome.uploadedUrls) {
+			masterUploadedUrls.add(url);
+			const entry = pendingImages.get(url);
+			if (entry) {
+				URL.revokeObjectURL(entry.objectUrl);
+				pendingImages.delete(url);
+			}
+		}
+		const text = serializePostFile(fm, extras, body);
 		const { sha: newSha, warnings } = await publishPostFile(
 			token,
 			remotePath,
-			serializePostFile(fm, extras, body),
+			text,
 			fm.title.trim(),
 			sha ?? undefined,
 		);
 		sha = newSha;
 		draftSha = null;
 		draftBanner = null;
-		savedSnapshot = serializePostFile(fm, extras, body);
+		savedSnapshot = text;
 		invalidateDraftCountCache();
+		const allWarnings = [
+			...prepared.warnings,
+			...outcome.failed.map(
+				(f) => `插图 ${f.url.split("/").pop()} 上传失败：${f.reason}`,
+			),
+			...warnings,
+		];
 		showToast(
-			warnings.length
-				? `已发布；${warnings.length} 项草稿收尾未完成：${warnings[0]}`
+			allWarnings.length
+				? `已发布；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
 				: "已发布，Cloudflare 构建约 1-2 分钟后此页面才会更新为新内容",
 		);
 	} catch (error) {
@@ -656,6 +871,8 @@ async function save() {
 		}
 	} finally {
 		saving = false;
+		imageUploadTotal = 0;
+		imageUploadDone = 0;
 	}
 }
 
@@ -680,7 +897,7 @@ async function reloadRemote() {
 	}
 }
 
-// --- 插图 ---
+// --- 插图（随文保存：插入/粘贴只进内存，暂存/发布时才上传） ---
 
 function readFileBase64(file: File): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -695,6 +912,15 @@ function readFileBase64(file: File): Promise<string> {
 	});
 }
 
+/** 待上传表登记；同 URL 重复插入时回收旧 blob，避免泄漏 */
+function stageImage(url: string, base64: string, objectUrl: string) {
+	const existing = pendingImages.get(url);
+	if (existing && existing.objectUrl !== objectUrl) {
+		URL.revokeObjectURL(existing.objectUrl);
+	}
+	pendingImages.set(url, { base64, objectUrl });
+}
+
 async function handleImageSelected(event: Event) {
 	const input = event.currentTarget;
 	if (!(input instanceof HTMLInputElement)) return;
@@ -702,35 +928,88 @@ async function handleImageSelected(event: Event) {
 	input.value = ""; // 允许连续选同一张图
 	if (!file) return;
 	if (!isLoggedIn) {
-		editorError = "登录已失效：请重新验证后再上传图片";
+		editorError = "登录已失效：请重新验证后再插入图片";
 		return;
 	}
-	uploadingImage = true;
 	editorError = "";
 	try {
 		const base64 = await readFileBase64(file);
-		const safeName = file.name
-			.toLowerCase()
-			.replace(/[^a-z0-9.\-_]/g, "-")
-			.replace(/-+/g, "-")
-			.replace(/^-|-$/g, "");
-		const uploadName = `${timestampPrefix()}-${safeName || "image"}`;
-		// 插图随暂存走草稿分支：写作中途传图不触发 master 构建，发布时统一搬运
-		await ensureDraftsBranch(token);
-		await saveDraftImage(token, uploadName, base64);
-		const alt = file.name.replace(/[[\]]/g, "");
-		await insertAtCursor(
-			`![${alt}](${IMAGE_PUBLIC_PREFIX}/${encodeURI(uploadName)})`,
-		);
-		showToast("图片已暂存到草稿分支并插入正文（发布时随文章一起上线）");
+		// 弹命名卡：预填建议名（原文件名清洗），后缀固定；确认才进待上传表
+		nameDialog = {
+			base64,
+			objectUrl: URL.createObjectURL(file),
+			suggested: defaultImageName(file.name),
+			ext: imageExtFrom(file),
+		};
 	} catch (error) {
-		editorError = describeGitHubError(error);
-		if (error instanceof GitHubError && error.kind === "unauthorized") {
-			kickToRelogin();
-		}
-	} finally {
-		uploadingImage = false;
+		editorError = error instanceof Error ? error.message : String(error);
 	}
+}
+
+/** 命名卡确认：登记待上传 + 光标处插入引用（图片未上传，URL 先按最终地址占位） */
+async function confirmImageName(rawName: string) {
+	const dialog = nameDialog;
+	if (!dialog) return;
+	nameDialog = null;
+	const finalName = sanitizeImageName(rawName);
+	const url = `${imagePublicDirFor(fileName)}/${finalName}${dialog.ext}`;
+	stageImage(url, dialog.base64, dialog.objectUrl);
+	await insertAtCursor(buildImageMarkdown(finalName, url));
+	showToast("图片已插入正文（暂存/发布时随文上传，刷新前只存本浏览器）");
+}
+
+/** 命名卡取消：不插入不上传，回收本地预览 */
+function cancelImageName() {
+	if (nameDialog) URL.revokeObjectURL(nameDialog.objectUrl);
+	nameDialog = null;
+}
+
+/**
+ * Ctrl+V 直接粘图：多张逐一自动命名插入（时间戳-paste[-N]），事后可改正文路径重命名。
+ * 监听挂在编辑器根容器上：焦点在预览/工具栏（如刚点完插入图片按钮）也能粘；
+ * 元信息输入框与命名卡的输入框保持原生文本粘贴，不在编辑界面时不接管。
+ */
+async function handlePaste(event: ClipboardEvent) {
+	if (mode !== "editing" || nameDialog) return;
+	const target = event.target;
+	if (target instanceof HTMLInputElement) return;
+	if (target instanceof HTMLTextAreaElement && target !== bodyTextarea) return;
+	const images = imageFilesFromClipboard(event.clipboardData);
+	if (images.length === 0) return;
+	// 无登录态也拦下原生粘贴（避免把图片文件路径当文本粘进正文）
+	event.preventDefault();
+	if (!isLoggedIn) {
+		editorError = "登录已失效：请重新验证后再粘贴图片";
+		return;
+	}
+	editorError = "";
+	const articleDirUrl = imagePublicDirFor(fileName);
+	let index = 0;
+	for (const file of images) {
+		index++;
+		try {
+			const base64 = await readFileBase64(file);
+			const ext = imageExtFrom(file);
+			const base = `${timestampPrefix()}-paste${index > 1 ? `-${index}` : ""}`;
+			let name = base;
+			let url = `${articleDirUrl}/${name}${ext}`;
+			// 同一秒内多次粘贴会撞名：追加序号避开覆盖
+			while (pendingImages.has(url)) {
+				name = `${base}-${++index}`;
+				url = `${articleDirUrl}/${name}${ext}`;
+			}
+			stageImage(url, base64, URL.createObjectURL(file));
+			await insertAtCursor(buildImageMarkdown(name, url));
+		} catch (error) {
+			editorError = error instanceof Error ? error.message : String(error);
+			return;
+		}
+	}
+	showToast(
+		images.length > 1
+			? `已粘贴 ${images.length} 张图片（暂存/发布时随文上传）`
+			: "图片已插入正文（暂存/发布时随文上传）",
+	);
 }
 
 async function insertAtCursor(text: string) {
@@ -754,7 +1033,7 @@ async function insertAtCursor(text: string) {
 }
 </script>
 
-<div class="w-full" bind:this={rootEl}>
+<div class="w-full" bind:this={rootEl} onpaste={(event) => void handlePaste(event)}>
 	{#if mode === "idle" && (authed || staleToken)}
 		<!-- 待机：portal 进元信息行右端（无槽位时退回卡片顶部）。
 			访客（无 token）不渲染；有 token 但验证没过时降级为「登录后编辑」 -->
@@ -896,10 +1175,12 @@ async function insertAtCursor(text: string) {
 						type="button"
 						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
 						onclick={() => imageInput?.click()}
-						disabled={!isLoggedIn || uploadingImage}
-						title={isLoggedIn ? "" : "重新验证后才能上传图片"}
+						disabled={!isLoggedIn}
+						title={isLoggedIn
+							? "图片先存浏览器内存，暂存/发布时随文上传"
+							: "重新验证后才能插入图片"}
 					>
-						{uploadingImage ? "上传中……" : "插入图片"}
+						插入图片
 					</button>
 					<button
 						type="button"
@@ -910,7 +1191,11 @@ async function insertAtCursor(text: string) {
 							? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
 							: "重新验证后才能暂存"}
 					>
-						{savingDraft ? "暂存中……" : "暂存草稿"}
+						{savingDraft
+							? (imageUploadTotal > 0
+								? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
+								: "暂存中……")
+							: "暂存草稿"}
 					</button>
 					<button
 						type="button"
@@ -921,7 +1206,11 @@ async function insertAtCursor(text: string) {
 							? "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"
 							: "重新验证后才能发布"}
 					>
-						{saving ? "发布中……" : "发布"}
+						{saving
+							? (imageUploadTotal > 0
+								? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
+								: "发布中……")
+							: "发布"}
 					</button>
 				{/if}
 			</div>
@@ -1165,7 +1454,7 @@ async function insertAtCursor(text: string) {
 							bind:value={body}
 							spellcheck="false"
 							class="w-full min-h-[60vh] bg-transparent outline-hidden border-0 resize-y font-mono text-sm leading-7 text-75 placeholder:opacity-50"
-							placeholder="在这里书写正文（Markdown）……"
+							placeholder="在这里书写正文（Markdown），支持 Ctrl+V 直接粘贴图片……"
 						></textarea>
 					</div>
 					<div
@@ -1188,6 +1477,17 @@ async function insertAtCursor(text: string) {
 		</div>
 	{/if}
 </div>
+
+<!-- 插图命名卡（选图后弹出，确认才插入正文） -->
+{#if nameDialog}
+	<ImageNameDialog
+		previewUrl={nameDialog.objectUrl}
+		suggested={nameDialog.suggested}
+		ext={nameDialog.ext}
+		onconfirm={(name) => void confirmImageName(name)}
+		oncancel={cancelImageName}
+	/>
+{/if}
 
 <!-- toast -->
 {#if notice}
