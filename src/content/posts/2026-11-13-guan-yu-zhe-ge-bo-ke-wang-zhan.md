@@ -23,4 +23,3 @@ slug: guan-yu-zhe-ge-bo-ke-wang-zhan
 **点「发布」之后发生了什么**
 1. 当前页走的是 Cloudflare Pages，通过 GitHub 集成盯着仓库，每次push到github都会收到事件，然后自动拉代码、跑构建、把产物推到全球 CDN。暂存草稿的提交信息里带了 `[CI Skip]` 标记，Cloudflare 默认构建所有分支，没有这个的话每次暂存草稿都会构建，虽然不会影响主分支就是了。
 2. 镜像走的是 Github Pages，仓库里的 Github Actions Workflow 只监听master分支的push，推送时自动构建，发布到pages。
-![屏幕截图 2026-11-13 165622.png](/assets/images/posts/20261113-165658-2026-11-13-165622.png)
