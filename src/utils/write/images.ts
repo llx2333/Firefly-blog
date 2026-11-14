@@ -317,6 +317,49 @@ export function reconcileRefs(
 	return { uploads, unknownUrls, droppedUrls, renames };
 }
 
+// ---------- 已上传图的改名配对 ----------
+
+/**
+ * 已上传图（不在待上传表）的手改路径配对：基准（上次保存的正文）引用 vs 当前
+ * 引用，数量恰好相等才按出现顺序两两配对。同文章子目录 + 同扩展名才认——
+ * 跨目录/换扩展多半是新图或外链，绝不猜测（宁缺勿错）。配不上的原样返回，
+ * 由调用方按未知引用走校验提示。toUrl 重复或 fromUrl 重复的候选一律跳过：
+ * 一份字节改名两次去向不明，宁可让用户手动处理。
+ */
+export function pairRenamedUploads(
+	baselineUrls: readonly string[],
+	currentUrls: readonly string[],
+	articleDirUrl: string,
+): Array<{ fromUrl: string; toUrl: string }> {
+	const currentSet = new Set(currentUrls);
+	const baselineSet = new Set(baselineUrls);
+	const dropped = baselineUrls.filter((url) => !currentSet.has(url));
+	const added = currentUrls.filter((url) => !baselineSet.has(url));
+	if (dropped.length === 0 || dropped.length !== added.length) return [];
+
+	const prefix = `${articleDirUrl}/`;
+	const extOf = (url: string): string => {
+		const name = url.slice(url.lastIndexOf("/") + 1);
+		const dot = name.lastIndexOf(".");
+		return dot === -1 ? "" : name.slice(dot).toLowerCase();
+	};
+	const pairs: Array<{ fromUrl: string; toUrl: string }> = [];
+	const usedFrom = new Set<string>();
+	const usedTo = new Set<string>();
+	for (let i = 0; i < dropped.length; i++) {
+		const fromUrl = dropped[i];
+		const toUrl = added[i];
+		if (usedFrom.has(fromUrl) || usedTo.has(toUrl)) continue;
+		if (!fromUrl.startsWith(prefix) || !toUrl.startsWith(prefix)) continue;
+		const ext = extOf(fromUrl);
+		if (ext === "" || ext !== extOf(toUrl)) continue;
+		usedFrom.add(fromUrl);
+		usedTo.add(toUrl);
+		pairs.push({ fromUrl, toUrl });
+	}
+	return pairs;
+}
+
 // ---------- 预览工具 ----------
 
 /** decodeURIComponent 的安全版：畸形编码原样返回 */

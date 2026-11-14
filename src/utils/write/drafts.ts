@@ -12,6 +12,8 @@
  *   的 fine-grained token 权限 = Contents(write)（docs.github.com/en/rest/git/refs），
  *   与提交文章同权限，现有 token 天然够用。
  */
+
+import { parsePostFile } from "./frontmatter";
 import {
 	apiContentsPath,
 	type ContentsEntry,
@@ -35,6 +37,7 @@ import {
 	imagePublicDirFor,
 	imageUrlToRepoPath,
 	type PendingImage,
+	pairRenamedUploads,
 	postImageRefs,
 	reconcileRefs,
 	rewriteImageRefs,
@@ -156,6 +159,21 @@ export interface PreparedImages {
 	plan: ImagePlan;
 	/** 非阻塞提示（迁移失败 / 发布校验图片不在线上），由调用方并进 toast */
 	warnings: string[];
+	/**
+	 * 改名搬运失败时须保全的草稿分支文件（repo path）：旧名可能是唯一副本，
+	 * 后续清扫（暂存收尾/发布收尾）绝不碰它们。
+	 */
+	protectedDraftPaths: string[];
+}
+
+/** 基线快照（上次保存的完整文件文本）→ 正文部分；解析失败按无基线处理 */
+function baselineBodyOf(snapshot: string): string {
+	if (!snapshot) return "";
+	try {
+		return parsePostFile(snapshot).body;
+	} catch {
+		return "";
+	}
 }
 
 /**
@@ -164,8 +182,16 @@ export interface PreparedImages {
  *    草稿分支旧路径找得到 → 搬进本文子目录并改写引用；找不到则原样保留
  *    （Sveltia 传到 master 的图原生可见，不动）；
  * ② reconcile 裁决（重命名 / 目录归一化 / 删图）并改写正文；
+ * ②-b 已上传图的手改路径 = 改名搬运：baselineText（上次保存正文）里消失的
+ *    引用 ↔ 当前新增的未知引用，数量相等且同目录同扩展名才两两配对；旧名字节
+ *    从草稿分支（优先）或 master 取，新名 PUT 到目标分支，旧名删除（master 只
+ *    在发布目标删，暂存绝不碰 master）。新路径已在线上则不配对（那是有效引用，
+ *    不是改名）。失败不阻塞 md 提交，旧名进 protectedDraftPaths；
  * ③ 发布目标额外校验未知引用：master 与草稿分支都没有 → 警告「路径可能有误」；
  *    草稿分支有的由发布收尾搬运，不算缺失。任何失败都不阻塞 md 提交。
+ *
+ * 已知取舍：改名搬运先于 md 提交执行；md 提交失败时文件已搬走，下次保存会
+ * 重新校验并把提示给出来（预览侧旧引用裂图属可恢复状态，git 历史可回溯）。
  */
 export async function prepareImageSaves(
 	token: string,
@@ -173,8 +199,10 @@ export async function prepareImageSaves(
 	body: string,
 	pending: ReadonlyMap<string, PendingImage>,
 	target: "draft" | "master",
+	baselineText?: string,
 ): Promise<PreparedImages> {
 	const warnings: string[] = [];
+	const protectedDraftPaths: string[] = [];
 	const articleDirUrl = imagePublicDirFor(fileName);
 	const rewrites = new Map<string, string>();
 
@@ -217,6 +245,86 @@ export async function prepareImageSaves(
 			? rewriteImageRefs(body, (decoded) => rewrites.get(decoded) ?? null)
 			: body;
 
+	// ②-b 已上传图的手改路径 = 改名搬运（真实字节跟着引用走，仓库文件同步改名）
+	const baselineUrls = postImageRefs(baselineBodyOf(baselineText ?? "")).map(
+		(ref) => safeDecode(ref.url),
+	);
+	const currentUrls = postImageRefs(body).map((ref) => safeDecode(ref.url));
+	const uploadTargets = new Set(plan.uploads.map((u) => u.url));
+	for (const { fromUrl, toUrl } of pairRenamedUploads(
+		baselineUrls,
+		currentUrls,
+		articleDirUrl,
+	)) {
+		// 新路径正是某张待上传图的目标 → 是新图不是改名，交还给上传流程
+		if (uploadTargets.has(toUrl)) continue;
+		const fromRepo = imageUrlToRepoPath(fromUrl);
+		const toRepo = imageUrlToRepoPath(toUrl);
+		if (!fromRepo || !toRepo) continue;
+		const fromName = fromUrl.split("/").pop() ?? fromUrl;
+		const toName = toUrl.split("/").pop() ?? toUrl;
+		try {
+			// 新路径已在线上（master 或草稿分支）→ 有效引用，不是改名，按原样校验
+			const toOnline =
+				(await fetchMasterFileSha(token, toRepo)) !== undefined ||
+				(await fetchDraftFile(token, toRepo)) !== null;
+			if (toOnline) continue;
+			// 旧名字节：草稿分支优先（最新的工作态），master 兜底
+			const source =
+				(await fetchDraftFile(token, fromRepo)) ??
+				(await fetchMasterFile(token, fromRepo));
+			if (!source) {
+				warnings.push(
+					`图片改名 ${fromName} → ${toName} 失败：找不到原文件 ${fromName}`,
+				);
+				protectedDraftPaths.push(fromRepo);
+				continue;
+			}
+			if (target === "draft") {
+				await putRawFile(
+					token,
+					toRepo,
+					source.base64,
+					`write(draft): 插图改名 ${fromName} → ${toName}`,
+					{ branch: DRAFT_BRANCH },
+				);
+			} else {
+				const toSha = await fetchMasterFileSha(token, toRepo);
+				await putRawFile(
+					token,
+					toRepo,
+					source.base64,
+					`write: 插图改名 ${fromName} → ${toName}`,
+					{ ...(toSha ? { sha: toSha } : {}) },
+				);
+			}
+			// 旧名清理：草稿分支一定删；master 只在发布目标删（暂存绝不碰 master）
+			const masterOldSha = await fetchMasterFileSha(token, fromRepo);
+			await deleteDraftFile(token, fromRepo);
+			if (target === "master" && masterOldSha !== undefined) {
+				await ghFetch(
+					token,
+					`${repoRoot}/contents/${apiContentsPath(fromRepo)}`,
+					{
+						method: "DELETE",
+						body: JSON.stringify({
+							message: `write: 插图改名清理 ${fromName}`,
+							sha: masterOldSha,
+							branch: WRITE_REPO.branch,
+						}),
+					},
+				);
+			}
+			// 编辑器据此重映射已上传 URL 集与草稿预览缓存（旧键 → 新键）
+			plan.renames.push({ fromUrl, toUrl });
+		} catch (error) {
+			warnings.push(
+				`图片改名 ${fromName} → ${toName} 失败：${describeGitHubError(error)}`,
+			);
+			protectedDraftPaths.push(fromRepo);
+		}
+	}
+
 	// ③ 发布目标：未知引用在线校验（非阻塞，失败项进 warnings）
 	if (target === "master") {
 		for (const url of plan.unknownUrls) {
@@ -235,7 +343,7 @@ export async function prepareImageSaves(
 		}
 	}
 
-	return { body: nextBody, plan, warnings };
+	return { body: nextBody, plan, warnings, protectedDraftPaths };
 }
 
 export interface UploadOutcome {
@@ -433,6 +541,46 @@ export function formatCommitDate(iso: string): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+export interface SweepOutcome {
+	/** 清掉的未引用插图数 */
+	deleted: number;
+	/** 清理失败的文件名（不阻塞保存，留给下次保存或手动处理） */
+	failed: string[];
+}
+
+/**
+ * 暂存收尾：清掉草稿分支本文子目录里不再被正文引用的插图（删引用行 = 删图，
+ * 暂存即生效；发布收尾 publishPostFile 内含同类清扫）。
+ * keepPaths：改名搬运失败等场景要保全的 repo path——旧名可能是唯一副本，绝不扫掉。
+ * 只动本文子目录；目录读取失败抛给调用方（不得阻塞暂存结果）。
+ */
+export async function sweepDraftImages(
+	token: string,
+	fileName: string,
+	body: string,
+	keepPaths: ReadonlySet<string> = new Set(),
+): Promise<SweepOutcome> {
+	const articleDir = articleSlugDir(fileName);
+	const images = await listDraftDir(token, `${IMAGES_DIR}/${articleDir}`);
+	const referenced = new Set(
+		postImageRefs(body).map((ref) => safeDecode(ref.url)),
+	);
+	let deleted = 0;
+	const failed: string[] = [];
+	for (const img of images) {
+		if (keepPaths.has(img.path)) continue;
+		const publicUrl = `${IMAGE_PUBLIC_PREFIX}/${articleDir}/${img.name}`;
+		if (referenced.has(publicUrl)) continue;
+		try {
+			await deleteDraftFile(token, img.path);
+			deleted++;
+		} catch {
+			failed.push(img.name);
+		}
+	}
+	return { deleted, failed };
+}
+
 export interface PublishOutcome {
 	sha: string;
 	warnings: string[];
@@ -458,11 +606,38 @@ async function fetchMasterFileSha(
 	}
 }
 
+/** 读 master 分支文件（插图改名搬运时取旧名字节的兜底源）；不存在返回 null */
+async function fetchMasterFile(
+	token: string,
+	path: string,
+): Promise<DraftFile | null> {
+	try {
+		const res = await ghFetch(
+			token,
+			`${repoRoot}/contents/${apiContentsPath(path)}?ref=${WRITE_REPO.branch}&t=${Date.now()}`,
+		);
+		const file = (await res.json()) as {
+			sha: string;
+			content: string;
+			encoding: string;
+		};
+		if (file.encoding !== "base64" || typeof file.content !== "string") {
+			throw new GitHubError("server", 0, "文件不是 base64 编码，无法读取");
+		}
+		return { sha: file.sha, base64: file.content };
+	} catch (error) {
+		if (error instanceof GitHubError && error.kind === "not-found") return null;
+		throw error;
+	}
+}
+
 /**
  * 发布 = ① 收尾草稿插图（先图后文）→ ② 提交 master 正文 → ③ 清理草稿 md。
  * ① 只处理本文插图子目录：被最终正文引用的搬 master（先取现值 sha 覆盖写），
  * 未被引用的从草稿删除（= 用户删掉的图随发布自动清理）；其他文章的子目录与
  * 旧平铺文件一律不动，master 上的文件从不自动删。
+ * keepDraftPaths：改名搬运失败时须保全的 repo path（旧名可能是唯一副本），
+ * 收尾清扫跳过它们。
  */
 export async function publishPostFile(
 	token: string,
@@ -470,6 +645,7 @@ export async function publishPostFile(
 	text: string,
 	title: string,
 	masterSha?: string,
+	keepDraftPaths: ReadonlySet<string> = new Set(),
 ): Promise<PublishOutcome> {
 	const warnings: string[] = [];
 	const articleDir = articleSlugDir(path.slice(POSTS_DIR.length + 1));
@@ -480,6 +656,7 @@ export async function publishPostFile(
 			postImageRefs(text).map((ref) => safeDecode(ref.url)),
 		);
 		for (const img of images) {
+			if (keepDraftPaths.has(img.path)) continue;
 			const publicUrl = `${IMAGE_PUBLIC_PREFIX}/${articleDir}/${img.name}`;
 			try {
 				if (referenced.has(publicUrl)) {

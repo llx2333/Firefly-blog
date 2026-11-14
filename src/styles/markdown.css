@@ -100,6 +100,34 @@
     @apply my-4;
   }
 
+  /*
+   * 编辑器预览的代码块语言徽章：读者侧由 expressive-code-language-badge 构建
+   * 期渲染（[data-language]::before），预览侧（marked 纯输出）由
+   * hoistCodeLanguages 把语言提到 .code-block-wrap[data-language]，这里用与
+   * expressive-code.css 徽章同款主题变量绘制，观感一致。徽章只认
+   * .code-block-wrap，行内 code 不受影响；无语言（``` 裸围栏）的块不产生属性。
+   */
+  .code-block-wrap {
+    position: relative;
+
+    &[data-language]::before {
+      content: attr(data-language);
+      position: absolute;
+      top: 0.5rem;
+      right: 0.75rem;
+      z-index: 1;
+      @apply text-xs leading-none font-medium px-2 py-1 rounded-md select-none;
+      color: var(--btn-content);
+      background: var(--btn-regular-bg);
+      opacity: 0.85;
+    }
+
+    pre {
+      /* 给右上角徽章留出空间，避免长代码行顶到徽章下面 */
+      @apply relative;
+    }
+  }
+
   ul,
   ol {
     li::marker {

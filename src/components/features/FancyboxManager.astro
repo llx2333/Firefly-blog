@@ -236,4 +236,42 @@
   document.addEventListener("password:decrypted", () => {
     setTimeout(setup, 200);
   });
+
+  // 兜底 1：swup hooks 直连。DOM 事件名对但有站点把 swup 挂载晚于本脚本的情况，
+  // hooks 实例就绪后补挂一次；两条路都进 setup，幂等（unbind→bind + 空匹配早退）
+  const bindSwupHooks = () => {
+    const swup = window.swup;
+    if (swup?.hooks?.on && !swup.__fancyboxHooksBound) {
+      swup.__fancyboxHooksBound = true;
+      swup.hooks.on("content:replace", () => requestAnimationFrame(setup));
+    }
+  };
+  bindSwupHooks();
+  document.addEventListener("swup:page:view", bindSwupHooks);
+
+  // 兜底 2：晚于最后一次 setup() 出现的图片必须重绑，否则只剩 zoom-in 光标、
+  // 点击无反应——写作页预览的图（进入时预览为空，setup 早退过）就是因此全灭。
+  // 监听全文档新节点，防抖合帧；Fancybox 自己的容器里新增的节点不算（避免
+  // 开灯箱 → 重绑 → 再触发的自激）。
+  let mutationTimer = 0;
+  const mutationObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.closest(".fancybox__container")) continue;
+        if (node.tagName === "IMG" || node.querySelector?.("img")) {
+          clearTimeout(mutationTimer);
+          mutationTimer = window.setTimeout(
+            () => requestAnimationFrame(setup),
+            120,
+          );
+          return;
+        }
+      }
+    }
+  });
+  mutationObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
 </script>

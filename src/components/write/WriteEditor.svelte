@@ -31,6 +31,7 @@ import {
 	publishPostFile,
 	removeArticleDraftImages,
 	saveDraftPost,
+	sweepDraftImages,
 	uploadPendingImages,
 } from "@/utils/write/drafts";
 import {
@@ -67,6 +68,7 @@ import {
 	safeDecode,
 	sanitizeImageName,
 } from "@/utils/write/images";
+import { hoistCodeLanguages } from "@/utils/write/preview";
 import { persistToken } from "@/utils/write/session";
 import {
 	fileNameToSlug,
@@ -142,7 +144,7 @@ const sanitizeConfig: sanitizeHtml.Options = {
 		code: ["class"],
 		span: ["class"],
 		pre: ["class"],
-		div: ["class"],
+		div: ["class", "data-language"],
 	},
 	allowedSchemes: ["http", "https", "mailto", "blob"],
 };
@@ -264,9 +266,10 @@ const preview = $derived.by(() => {
 		const html = marked.parse(body, { async: false, gfm: true });
 		if (typeof html !== "string")
 			return { html: "", error: "预览返回异常结果" };
-		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再消毒
+		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再提语言徽章、消毒
 		const localized = localizePreviewImages(html, resolvePreviewImage);
-		return { html: sanitizeHtml(localized, sanitizeConfig), error: "" };
+		const hoisted = hoistCodeLanguages(localized);
+		return { html: sanitizeHtml(hoisted, sanitizeConfig), error: "" };
 	} catch (error) {
 		return {
 			html: "",
@@ -308,6 +311,39 @@ function applyImagePlan(plan: ImagePlan) {
 		retiredPreviewUrls.set(rename.fromUrl, entry.objectUrl);
 		pendingImages.delete(rename.fromUrl);
 		pendingImages.set(rename.toUrl, entry);
+	}
+	// 已上传图的改名落库（保存时仓库文件已同步改名）：已上传 URL 集与草稿
+	// 预览缓存按旧键 → 新键搬家，改完名的引用继续命中缓存，不必重新回源
+	for (const rename of plan.renames) {
+		if (rename.fromUrl === rename.toUrl) continue;
+		if (
+			pendingImages.has(rename.fromUrl) ||
+			!(
+				draftUploadedUrls.has(rename.fromUrl) ||
+				masterUploadedUrls.has(rename.fromUrl) ||
+				draftPreviewUrls.has(rename.fromUrl)
+			)
+		) {
+			continue;
+		}
+		if (draftUploadedUrls.has(rename.fromUrl)) {
+			draftUploadedUrls.delete(rename.fromUrl);
+			draftUploadedUrls.add(rename.toUrl);
+		}
+		if (masterUploadedUrls.has(rename.fromUrl)) {
+			masterUploadedUrls.delete(rename.fromUrl);
+			masterUploadedUrls.add(rename.toUrl);
+		}
+		const cached = draftPreviewUrls.get(rename.fromUrl);
+		if (cached) {
+			draftPreviewUrls.delete(rename.fromUrl);
+			draftPreviewUrls.set(rename.toUrl, cached);
+		}
+		// 新键不再走草稿分支预取（旧键已试过的记录搬到新键，省一次回源与 blob 泄漏）
+		if (draftPreviewTried.has(rename.fromUrl)) {
+			draftPreviewTried.delete(rename.fromUrl);
+			draftPreviewTried.add(rename.toUrl);
+		}
 	}
 	// 目录写法差异的命中上传（untitled/旧平铺引用）：正文要到保存才改写，
 	// 期间旧写法 URL 也指向同一 blob，备查防预览断链
@@ -959,12 +995,13 @@ async function saveDraft() {
 			body,
 			pendingImages,
 			"draft",
+			storedSnapshot,
 		);
 		body = prepared.body;
 		applyImagePlan(prepared.plan);
 		const outcome = await uploadPendingImages(
 			token,
-			prepared.uploads,
+			prepared.plan.uploads,
 			"draft",
 			draftUploadedUrls,
 			(done, total) => {
@@ -987,11 +1024,36 @@ async function saveDraft() {
 		const draftTitle = fm.title.trim();
 		if (draftTitle) draftTitles.set(path, draftTitle);
 		else draftTitles.delete(path); // 标题被清空：下次列表重查，回退文件名
+		// 暂存收尾：清掉草稿分支不再被正文引用的插图（删引用行 = 删图即时生效）；
+		// 改名搬运失败保全的文件在 keepPaths 里，绝不扫掉。
+		// warnings（改名失败等）必须并入 toast，不能静默——否则仓库与正文脱节无人知晓
+		const notes = [
+			...prepared.warnings,
+			...outcome.failed.map(
+				(f) =>
+					`插图 ${f.url.split("/").pop()} 上传失败（本地预览仍在，再点一次暂存可重试）：${f.reason}`,
+			),
+		];
+		try {
+			const sweep = await sweepDraftImages(
+				token,
+				`${fileName.trim()}.${fileExt}`,
+				body,
+				new Set(prepared.protectedDraftPaths),
+			);
+			notes.push(
+				...sweep.failed.map(
+					(name) => `草稿插图 ${name} 清理失败（不影响暂存，可稍后重试）`,
+				),
+			);
+		} catch {
+			/* 草稿插图目录读取失败不影响暂存结果 */
+		}
 		storedSnapshot = text;
 		invalidateDraftCountCache();
 		showToast(
-			outcome.failed.length
-				? `草稿已暂存；${outcome.failed.length} 张插图上传失败（本地预览仍在，再点一次暂存可重试）：${outcome.failed[0].reason}`
+			notes.length
+				? `草稿已暂存；${notes.length} 项提示：${notes[0]}`
 				: `草稿已暂存到 ${DRAFT_BRANCH} 分支，线上不受影响`,
 		);
 	} catch (error) {
@@ -1087,12 +1149,13 @@ async function save() {
 			body,
 			pendingImages,
 			"master",
+			storedSnapshot,
 		);
 		body = prepared.body;
 		applyImagePlan(prepared.plan);
 		const outcome = await uploadPendingImages(
 			token,
-			prepared.uploads,
+			prepared.plan.uploads,
 			"master",
 			masterUploadedUrls,
 			(done, total) => {
@@ -1116,6 +1179,7 @@ async function save() {
 			text,
 			fm.title.trim(),
 			effectiveSha,
+			new Set(prepared.protectedDraftPaths),
 		);
 		sha = newSha;
 		loadedPath = path;
