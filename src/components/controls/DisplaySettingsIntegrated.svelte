@@ -9,6 +9,9 @@ import I18nKey from "@i18n/i18nKey";
 import { i18n } from "@i18n/translation";
 import type { WALLPAPER_SET } from "@utils/setting-utils";
 import {
+	ff2GetRaw,
+	ff2RemoveRaw,
+	ff2SetRaw,
 	getDefaultAmbientEffects,
 	getDefaultBannerCarouselEnabled,
 	getDefaultBannerTitleEnabled,
@@ -359,7 +362,15 @@ let hasVisibleOverlaySlider = $derived(
 
 function resetHue() {
 	hue = getDefaultHue();
+	setHue(hue, "reset");
 	requestAnimationFrame(refreshAllRangeProgress);
+}
+
+// 滑杆拖动：显式写存储 + 实时生效（批23：挂载期无条件回写 $effect 已删除）
+function handleHueInput(event: Event) {
+	const target = event.currentTarget as HTMLInputElement;
+	hue = Number(target.value);
+	setHue(hue, "slider");
 }
 
 function resetWallpaperMode() {
@@ -391,7 +402,7 @@ function switchFullscreenLayout(layout: FullscreenWallpaperLayout) {
 
 function resetLayout() {
 	currentLayout = effectiveDefaultLayout;
-	localStorage.removeItem("postListLayout");
+	ff2RemoveRaw("postListLayout");
 
 	// 触发自定义事件，通知页面布局已改变
 	const event = new CustomEvent("layoutChange", {
@@ -561,7 +572,7 @@ function switchLayout() {
 
 	isSwitching = true;
 	currentLayout = currentLayout === "list" ? "grid" : "list";
-	localStorage.setItem("postListLayout", currentLayout);
+	ff2SetRaw("postListLayout", currentLayout);
 
 	// 触发自定义事件，通知页面布局已改变
 	const event = new CustomEvent("layoutChange", {
@@ -612,8 +623,8 @@ onMount(() => {
 	overlayBlur = getStoredOverlayBlur();
 	overlayCardOpacity = getStoredOverlayCardOpacity();
 
-	// 从localStorage读取用户偏好布局
-	const savedLayout = localStorage.getItem("postListLayout");
+	// 从localStorage读取用户偏好布局（批23：ff2. 前缀，缺失时兜底读旧键）
+	const savedLayout = ff2GetRaw("postListLayout");
 	if (savedLayout && (savedLayout === "list" || savedLayout === "grid")) {
 		currentLayout = savedLayout;
 	} else {
@@ -707,11 +718,8 @@ onMount(() => {
 	return () => themeObserver.disconnect();
 });
 
-$effect(() => {
-	if (hue || hue === 0) {
-		setHue(hue);
-	}
-});
+// 批23：挂载期无条件 setHue 回写已删除——瞬时 hue 值不再被固化进存储，
+// 滑杆拖动/重置改为显式调用 setHue（带来源标签）。overlay 三键 $effect 保持不动。
 
 $effect(() => {
 	if (wallpaperMode === WALLPAPER_OVERLAY) {
@@ -783,7 +791,8 @@ $effect(() => {
 				</div>
 			</div>
 			<div class="hue-slider-shell w-full h-6 px-1 bg-[oklch(0.80_0.10_0)] dark:bg-[oklch(0.70_0.10_0)] rounded-md select-none">
-				<input aria-label={i18n(I18nKey.themeColor)} type="range" min="0" max="360" bind:value={hue}
+				<input aria-label={i18n(I18nKey.themeColor)} type="range" min="0" max="360" value={hue}
+					   oninput={handleHueInput}
 					   class="slider" id="colorSlider" step="5" style="width: 100%">
 			</div>
 		</div>

@@ -31,6 +31,272 @@ declare global {
 	}
 }
 
+// ===== 主题域存储加固（批23）：ff2. 前缀 + 一次性迁移 + 坏值校验 + 诊断埋点 =====
+// 主题域键统一走 ff2. 前缀；首次读到新键缺失而旧键存在 → 值合法则迁入新键并删除旧键，
+// 值非法则直接删旧键用默认。禁改键（music-player-volume、控制坞位置键、write-editor-*）不在此列。
+export const FF2_PREFIX = "ff2.";
+
+const THEME_STORAGE_KEYS = [
+	"hue",
+	"theme",
+	"wallpaperSet",
+	"wallpaperMode",
+	"fullscreenLayout",
+	"overlayOpacity",
+	"overlayBlur",
+	"overlayCardOpacity",
+	"wavesEnabled",
+	"gradientEnabled",
+	"bannerTitleEnabled",
+	"bannerCarouselEnabled",
+	"cardBorderEnabled",
+	"cardFollowThemeEnabled",
+	"postListLayout",
+	"ambientEffects",
+] as const;
+
+type ThemeStorageKey = (typeof THEME_STORAGE_KEYS)[number];
+
+function ff2Key(key: ThemeStorageKey): string {
+	return FF2_PREFIX + key;
+}
+
+// hue 必须为有限数字且 0–360（历史粉值/坏值防线）
+function isValidHueValue(value: string): boolean {
+	if (!/^-?\d+(\.\d+)?$/.test(value.trim())) {
+		return false;
+	}
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed >= 0 && parsed <= 360;
+}
+
+// 各键合法性校验（迁移与坏值清理共用）
+function isValidThemeValue(key: ThemeStorageKey, value: string): boolean {
+	switch (key) {
+		case "hue":
+			return isValidHueValue(value);
+		case "theme":
+			return value === "light" || value === "dark" || value === "system";
+		case "wallpaperSet":
+			return value === "main" || value === "alt";
+		case "wallpaperMode":
+			return (
+				value === "banner" ||
+				value === "fullscreen" ||
+				value === "overlay" ||
+				value === "none"
+			);
+		case "fullscreenLayout":
+			return value === "hero" || value === "classic";
+		case "postListLayout":
+			return value === "list" || value === "grid";
+		case "overlayOpacity":
+		case "overlayCardOpacity": {
+			const parsed = Number.parseFloat(value);
+			return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1;
+		}
+		case "overlayBlur": {
+			const parsed = Number.parseFloat(value);
+			return Number.isFinite(parsed) && parsed >= 0 && parsed <= 20;
+		}
+		case "wavesEnabled":
+		case "gradientEnabled":
+		case "bannerTitleEnabled":
+		case "bannerCarouselEnabled":
+		case "cardBorderEnabled":
+		case "cardFollowThemeEnabled":
+			return value === "true" || value === "false";
+		case "ambientEffects": {
+			try {
+				const parsed: unknown = JSON.parse(value);
+				return (
+					typeof parsed === "object" &&
+					parsed !== null &&
+					!Array.isArray(parsed)
+				);
+			} catch {
+				return false;
+			}
+		}
+		default:
+			return false;
+	}
+}
+
+// ===== P4 诊断埋点：环形缓冲 localStorage['ff2.diag']（JSON，最多 20 条），失败静默 =====
+type DiagEntry = {
+	t: string;
+	ev: string;
+	key?: string;
+	old?: string | null;
+	new?: string | null;
+	src?: string;
+};
+
+const FF2_DIAG_KEY = "ff2.diag";
+const FF2_DIAG_MAX = 20;
+
+function recordDiag(entry: Omit<DiagEntry, "t">): void {
+	try {
+		if (typeof window === "undefined" || !window.localStorage) {
+			return;
+		}
+		const full: DiagEntry = { t: new Date().toISOString(), ...entry };
+		const raw = localStorage.getItem(FF2_DIAG_KEY);
+		let list: DiagEntry[] = [];
+		if (raw) {
+			const parsed: unknown = JSON.parse(raw);
+			if (Array.isArray(parsed)) {
+				list = parsed as DiagEntry[];
+			}
+		}
+		list.push(full);
+		if (list.length > FF2_DIAG_MAX) {
+			list = list.slice(-FF2_DIAG_MAX);
+		}
+		localStorage.setItem(FF2_DIAG_KEY, JSON.stringify(list));
+		console.warn("[ff-diag]", full.ev, full.key ?? "", full);
+	} catch {
+		// 诊断失败静默，不影响功能
+	}
+}
+
+// ===== 旧键迁移白名单（批23 V1：污染值不得经迁移复活）=====
+// hue：仅历史/现行默认色相（150=现行默认，165=历史默认，及当前配置值）可迁入；
+// 其余（如症状中的粉值 345）一律按坏值清理。wallpaperSet：仅 'main' 迁入，
+// 'alt'（症状中的「整个皮肤变回流萤」污染态）静默删除，用户可在面板重选。
+// 其余键按结构合法性迁入。运行时 ff2.* 校验不受此白名单影响（仍按各键结构规则）。
+const MIGRATABLE_LEGACY_HUES = new Set(["150", "165"]);
+
+function isMigratableLegacyHue(value: string): boolean {
+	const trimmed = value.trim();
+	if (!isValidHueValue(trimmed)) {
+		return false;
+	}
+	if (MIGRATABLE_LEGACY_HUES.has(trimmed)) {
+		return true;
+	}
+	return trimmed === String(getDefaultHue());
+}
+
+function isMigratableValue(key: ThemeStorageKey, value: string): boolean {
+	if (key === "hue") {
+		return isMigratableLegacyHue(value);
+	}
+	if (key === "wallpaperSet") {
+		return value === "main";
+	}
+	return isValidThemeValue(key, value);
+}
+
+// 一次性迁移：旧裸键 → ff2. 新键（白名单值迁入、其余删除；新键已存在时旧键直接删除）
+export function migrateLegacyThemeKeys(src = "init"): void {
+	if (typeof window === "undefined" || !window.localStorage) {
+		return;
+	}
+	try {
+		for (const key of THEME_STORAGE_KEYS) {
+			const legacy = localStorage.getItem(key);
+			if (legacy === null) {
+				continue;
+			}
+			const newKey = ff2Key(key);
+			const migratable = isMigratableValue(key, legacy);
+			if (localStorage.getItem(newKey) === null && migratable) {
+				localStorage.setItem(newKey, legacy);
+				recordDiag({
+					ev: "migrate",
+					key,
+					old: legacy,
+					new: legacy,
+					src,
+				});
+			} else if (key === "hue" && !migratable) {
+				recordDiag({
+					ev: "bad-hue",
+					key,
+					old: legacy,
+					new: null,
+					src: `migrate:${src}`,
+				});
+			}
+			localStorage.removeItem(key);
+		}
+	} catch {
+		// 迁移失败静默，读取路径另有兜底
+	}
+}
+
+// 裸键读 helper：优先 ff2. 新键，缺失时兜底读旧键（供 inline 脚本之外的直接读点复用）
+export function ff2GetRaw(key: ThemeStorageKey): string | null {
+	if (typeof window === "undefined" || !window.localStorage) {
+		return null;
+	}
+	try {
+		const stored = localStorage.getItem(ff2Key(key));
+		if (stored !== null) {
+			return stored;
+		}
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+// 裸键写 helper：写 ff2. 新键
+export function ff2SetRaw(key: ThemeStorageKey, value: string): void {
+	if (typeof window === "undefined" || !window.localStorage) {
+		return;
+	}
+	try {
+		localStorage.setItem(ff2Key(key), value);
+	} catch {
+		// 写失败静默
+	}
+}
+
+// 裸键删 helper：新旧键一并删除
+export function ff2RemoveRaw(key: ThemeStorageKey): void {
+	if (typeof window === "undefined" || !window.localStorage) {
+		return;
+	}
+	try {
+		localStorage.removeItem(ff2Key(key));
+		localStorage.removeItem(key);
+	} catch {
+		// 删除失败静默
+	}
+}
+
+// 诊断监听器只装一次：跨标签页 storage 事件 + 模块加载期兜底迁移
+let themeDiagnosticsInstalled = false;
+function ensureThemeDiagnostics(): void {
+	if (themeDiagnosticsInstalled) {
+		return;
+	}
+	if (typeof window === "undefined" || !window.localStorage) {
+		return;
+	}
+	themeDiagnosticsInstalled = true;
+	migrateLegacyThemeKeys("module-init");
+	try {
+		window.addEventListener("storage", (e: StorageEvent) => {
+			if (!e.key?.startsWith(FF2_PREFIX)) {
+				return;
+			}
+			recordDiag({
+				ev: "storage-event",
+				key: e.key,
+				old: e.oldValue,
+				new: e.newValue,
+				src: "cross-tab",
+			});
+		});
+	} catch {
+		// 监听器安装失败静默
+	}
+}
+
 export function getDefaultHue(): number {
 	const fallback = "250";
 	// 检查是否在浏览器环境中
@@ -70,11 +336,58 @@ export function getHue(): number {
 	if (typeof window === "undefined" || !window.localStorage) {
 		return getDefaultHue();
 	}
-	const stored = localStorage.getItem("hue");
-	return stored ? Number.parseInt(stored, 10) : getDefaultHue();
+	try {
+		// 新键：ff2.hue（坏值清理 + 诊断）
+		const stored = localStorage.getItem(ff2Key("hue"));
+		if (stored !== null) {
+			if (isValidHueValue(stored)) {
+				return Number(stored);
+			}
+			localStorage.removeItem(ff2Key("hue"));
+			recordDiag({
+				ev: "bad-hue",
+				key: ff2Key("hue"),
+				old: stored,
+				new: null,
+				src: "getHue",
+			});
+			return getDefaultHue();
+		}
+		// 新键缺失：旧裸键兜底（含迁移；白名单外/非法值直接删除用默认）
+		const legacy = localStorage.getItem("hue");
+		if (legacy !== null) {
+			if (isMigratableLegacyHue(legacy)) {
+				localStorage.setItem(ff2Key("hue"), legacy);
+				recordDiag({
+					ev: "migrate",
+					key: "hue",
+					old: legacy,
+					new: legacy,
+					src: "getHue",
+				});
+				localStorage.removeItem("hue");
+				return Number(legacy);
+			}
+			localStorage.removeItem("hue");
+			recordDiag({
+				ev: "bad-hue",
+				key: "hue",
+				old: legacy,
+				new: null,
+				src: "getHue-legacy",
+			});
+			return getDefaultHue();
+		}
+	} catch {
+		// 存储访问失败回退默认
+	}
+	return getDefaultHue();
 }
 
-export function setHue(hue: number): void {
+export function setHue(
+	hue: number,
+	source: "slider" | "reset" | "program" = "program",
+): void {
 	// 先检查是否在浏览器环境
 	if (
 		typeof window === "undefined" ||
@@ -83,12 +396,53 @@ export function setHue(hue: number): void {
 	) {
 		return;
 	}
-	localStorage.setItem("hue", String(hue));
-	const r = document.querySelector(":root") as HTMLElement;
-	if (!r) {
+	// 非法入参直接拒绝（不写存储、不改样式）
+	if (!Number.isFinite(hue) || hue < 0 || hue > 360) {
+		recordDiag({
+			ev: "bad-hue",
+			key: ff2Key("hue"),
+			old: null,
+			new: String(hue),
+			src: `setHue:${source} rejected`,
+		});
 		return;
 	}
-	r.style.setProperty("--hue", String(hue));
+	let previous: string | null = null;
+	try {
+		previous = localStorage.getItem(ff2Key("hue"));
+	} catch {
+		previous = null;
+	}
+	localStorage.setItem(ff2Key("hue"), String(hue));
+	const r = document.querySelector(":root") as HTMLElement;
+	if (r) {
+		r.style.setProperty("--hue", String(hue));
+	}
+	// 诊断：set-hue（来源标签 + 栈前三行摘要 + 面板开合 + 同步 lastHue 快照）
+	try {
+		const stack = new Error().stack ?? "";
+		const stackSummary = stack
+			.split("\n")
+			.slice(1, 4)
+			.map((line) => line.trim())
+			.join(" <- ");
+		const panel = document.getElementById("display-setting");
+		const panelState = !panel
+			? "absent"
+			: panel.classList.contains("float-panel-closed")
+				? "closed"
+				: "open";
+		recordDiag({
+			ev: "set-hue",
+			key: ff2Key("hue"),
+			old: previous,
+			new: String(hue),
+			src: `${source} panel=${panelState} ${stackSummary}`.slice(0, 200),
+		});
+		localStorage.setItem("ff2.lastHue", String(hue));
+	} catch {
+		// 诊断失败静默
+	}
 }
 
 export function applyThemeToDocument(theme: LIGHT_DARK_MODE): void {
@@ -170,7 +524,7 @@ export function setTheme(theme: LIGHT_DARK_MODE): void {
 	applyThemeToDocument(theme);
 
 	// 保存到localStorage
-	localStorage.setItem("theme", theme);
+	ff2SetRaw("theme", theme);
 
 	// 如果切换到 system 模式，需要监听系统主题变化
 	if (theme === SYSTEM_MODE) {
@@ -259,13 +613,12 @@ export function getStoredTheme(): LIGHT_DARK_MODE {
 	) {
 		return getDefaultTheme();
 	}
-	return (
-		(localStorage.getItem("theme") as LIGHT_DARK_MODE) || getDefaultTheme()
-	);
+	return (ff2GetRaw("theme") as LIGHT_DARK_MODE | null) || getDefaultTheme();
 }
 
 // 初始化主题监听器（用于页面加载后）
 export function initThemeListener(): void {
+	ensureThemeDiagnostics();
 	if (
 		typeof localStorage === "undefined" ||
 		typeof localStorage.getItem !== "function"
@@ -315,10 +668,10 @@ export function getStoredFullscreenLayout(): FullscreenWallpaperLayout {
 	}
 	const isSwitchable = displaySettingsConfig.fullscreenLayoutSwitchable;
 	if (!isSwitchable) {
-		localStorage.removeItem("fullscreenLayout");
+		ff2RemoveRaw("fullscreenLayout");
 		return defaultLayout;
 	}
-	const stored = localStorage.getItem("fullscreenLayout");
+	const stored = ff2GetRaw("fullscreenLayout");
 	return stored === "hero" || stored === "classic" ? stored : defaultLayout;
 }
 
@@ -358,7 +711,7 @@ export function setFullscreenLayout(layout: FullscreenWallpaperLayout): void {
 		typeof localStorage !== "undefined" &&
 		typeof localStorage.setItem === "function"
 	) {
-		localStorage.setItem("fullscreenLayout", safeLayout);
+		localStorage.setItem(ff2Key("fullscreenLayout"), safeLayout);
 	}
 	applyFullscreenLayoutToDocument(safeLayout);
 }
@@ -467,11 +820,12 @@ export function setWallpaperMode(mode: WALLPAPER_MODE): void {
 	) {
 		return;
 	}
-	localStorage.setItem("wallpaperMode", mode);
+	localStorage.setItem(ff2Key("wallpaperMode"), mode);
 	applyWallpaperModeToDocument(mode);
 }
 
 export function initWallpaperMode(): void {
+	ensureThemeDiagnostics();
 	// 初始化透明模式参数（透明度/模糊度/卡片透明度）
 	applyStoredOverlaySettingsToDocument();
 	const storedMode = getStoredWallpaperMode();
@@ -489,12 +843,12 @@ export function getStoredWallpaperMode(): WALLPAPER_MODE {
 
 	const isSwitchable = displaySettingsConfig.wallpaperModeSwitchable;
 	if (!isSwitchable) {
-		localStorage.removeItem("wallpaperMode");
+		ff2RemoveRaw("wallpaperMode");
 		return backgroundWallpaper.mode;
 	}
 
 	return (
-		(localStorage.getItem("wallpaperMode") as WALLPAPER_MODE) ||
+		(ff2GetRaw("wallpaperMode") as WALLPAPER_MODE | null) ||
 		backgroundWallpaper.mode
 	);
 }
@@ -511,10 +865,10 @@ export function getStoredWallpaperSet(): WALLPAPER_SET {
 	}
 	const isSwitchable = displaySettingsConfig.wallpaperSetSwitchable;
 	if (!isSwitchable) {
-		localStorage.removeItem("wallpaperSet");
+		ff2RemoveRaw("wallpaperSet");
 		return "main";
 	}
-	return localStorage.getItem("wallpaperSet") === "alt" ? "alt" : "main";
+	return ff2GetRaw("wallpaperSet") === "alt" ? "alt" : "main";
 }
 
 export function setWallpaperSet(set: WALLPAPER_SET): void {
@@ -525,7 +879,7 @@ export function setWallpaperSet(set: WALLPAPER_SET): void {
 		return;
 	}
 	if (!displaySettingsConfig.wallpaperSetSwitchable) return;
-	localStorage.setItem("wallpaperSet", set);
+	localStorage.setItem(ff2Key("wallpaperSet"), set);
 	// 壁纸区脚本（WallpaperSection）监听此事件切换 slide 组
 	window.dispatchEvent(
 		new CustomEvent("wallpaperSetChange", { detail: { set } }),
@@ -556,7 +910,7 @@ export function getStoredOverlayOpacity(): number {
 	) {
 		return getDefaultOverlayOpacity();
 	}
-	const stored = localStorage.getItem("overlayOpacity");
+	const stored = ff2GetRaw("overlayOpacity");
 	if (stored === null) {
 		return getDefaultOverlayOpacity();
 	}
@@ -574,7 +928,7 @@ export function getStoredOverlayBlur(): number {
 	) {
 		return getDefaultOverlayBlur();
 	}
-	const stored = localStorage.getItem("overlayBlur");
+	const stored = ff2GetRaw("overlayBlur");
 	if (stored === null) {
 		return getDefaultOverlayBlur();
 	}
@@ -592,7 +946,7 @@ export function getStoredOverlayCardOpacity(): number {
 	) {
 		return getDefaultOverlayCardOpacity();
 	}
-	const stored = localStorage.getItem("overlayCardOpacity");
+	const stored = ff2GetRaw("overlayCardOpacity");
 	if (stored === null) {
 		return getDefaultOverlayCardOpacity();
 	}
@@ -645,7 +999,7 @@ export function setOverlayOpacity(opacity: number): void {
 		typeof localStorage !== "undefined" &&
 		typeof localStorage.setItem === "function"
 	) {
-		localStorage.setItem("overlayOpacity", String(safeOpacity));
+		localStorage.setItem(ff2Key("overlayOpacity"), String(safeOpacity));
 	}
 	applyOverlayOpacityToDocument(safeOpacity);
 }
@@ -656,7 +1010,7 @@ export function setOverlayBlur(blur: number): void {
 		typeof localStorage !== "undefined" &&
 		typeof localStorage.setItem === "function"
 	) {
-		localStorage.setItem("overlayBlur", String(safeBlur));
+		localStorage.setItem(ff2Key("overlayBlur"), String(safeBlur));
 	}
 	applyOverlayBlurToDocument(safeBlur);
 }
@@ -667,7 +1021,7 @@ export function setOverlayCardOpacity(cardOpacity: number): void {
 		typeof localStorage !== "undefined" &&
 		typeof localStorage.setItem === "function"
 	) {
-		localStorage.setItem("overlayCardOpacity", String(safeCardOpacity));
+		localStorage.setItem(ff2Key("overlayCardOpacity"), String(safeCardOpacity));
 	}
 	applyOverlayCardOpacityToDocument(safeCardOpacity);
 }
@@ -699,7 +1053,7 @@ export function getStoredWavesEnabled(): boolean {
 	) {
 		return getDefaultWavesEnabled();
 	}
-	const stored = localStorage.getItem("wavesEnabled");
+	const stored = ff2GetRaw("wavesEnabled");
 	if (stored === null) {
 		return getDefaultWavesEnabled();
 	}
@@ -713,7 +1067,7 @@ export function setWavesEnabled(enabled: boolean): void {
 	) {
 		return;
 	}
-	localStorage.setItem("wavesEnabled", String(enabled));
+	localStorage.setItem(ff2Key("wavesEnabled"), String(enabled));
 	applyWavesEnabledToDocument(enabled);
 }
 
@@ -756,7 +1110,7 @@ export function getStoredGradientEnabled(): boolean {
 	) {
 		return getDefaultGradientEnabled();
 	}
-	const stored = localStorage.getItem("gradientEnabled");
+	const stored = ff2GetRaw("gradientEnabled");
 	if (stored === null) {
 		return getDefaultGradientEnabled();
 	}
@@ -770,7 +1124,7 @@ export function setGradientEnabled(enabled: boolean): void {
 	) {
 		return;
 	}
-	localStorage.setItem("gradientEnabled", String(enabled));
+	localStorage.setItem(ff2Key("gradientEnabled"), String(enabled));
 	applyGradientEnabledToDocument(enabled);
 }
 
@@ -809,7 +1163,7 @@ export function getStoredAmbientEffects(): Record<AmbientEffectId, boolean> {
 		return defaults;
 	}
 	try {
-		const stored = localStorage.getItem("ambientEffects");
+		const stored = ff2GetRaw("ambientEffects");
 		if (!stored) {
 			return defaults;
 		}
@@ -837,7 +1191,7 @@ export function setAmbientEffectEnabled(
 	}
 	const current = getStoredAmbientEffects();
 	current[id] = enabled;
-	localStorage.setItem("ambientEffects", JSON.stringify(current));
+	localStorage.setItem(ff2Key("ambientEffects"), JSON.stringify(current));
 	document.documentElement.setAttribute(
 		"data-ambient-effects",
 		JSON.stringify(current),
@@ -875,7 +1229,7 @@ export function getStoredBannerTitleEnabled(): boolean {
 	) {
 		return getDefaultBannerTitleEnabled();
 	}
-	const stored = localStorage.getItem("bannerTitleEnabled");
+	const stored = ff2GetRaw("bannerTitleEnabled");
 	if (stored === null) {
 		return getDefaultBannerTitleEnabled();
 	}
@@ -893,7 +1247,7 @@ export function getStoredBannerCarouselEnabled(): boolean {
 	) {
 		return getDefaultBannerCarouselEnabled();
 	}
-	const stored = localStorage.getItem("bannerCarouselEnabled");
+	const stored = ff2GetRaw("bannerCarouselEnabled");
 	if (stored === null) {
 		return getDefaultBannerCarouselEnabled();
 	}
@@ -907,7 +1261,7 @@ export function setBannerTitleEnabled(enabled: boolean): void {
 	) {
 		return;
 	}
-	localStorage.setItem("bannerTitleEnabled", String(enabled));
+	localStorage.setItem(ff2Key("bannerTitleEnabled"), String(enabled));
 	applyBannerTitleEnabledToDocument(enabled);
 }
 
@@ -919,7 +1273,7 @@ export function setBannerCarouselEnabled(enabled: boolean): void {
 		typeof localStorage !== "undefined" &&
 		typeof localStorage.setItem === "function"
 	) {
-		localStorage.setItem("bannerCarouselEnabled", String(safeEnabled));
+		localStorage.setItem(ff2Key("bannerCarouselEnabled"), String(safeEnabled));
 	}
 	applyBannerCarouselEnabledToDocument(safeEnabled);
 	if (typeof window !== "undefined") {
@@ -972,7 +1326,7 @@ export function getStoredCardBorderEnabled(): boolean {
 	if (typeof localStorage === "undefined") {
 		return getDefaultCardBorderEnabled();
 	}
-	const stored = localStorage.getItem("cardBorderEnabled");
+	const stored = ff2GetRaw("cardBorderEnabled");
 	if (stored === null) {
 		return getDefaultCardBorderEnabled();
 	}
@@ -986,7 +1340,7 @@ export function setCardBorderEnabled(enabled: boolean): void {
 	) {
 		return;
 	}
-	localStorage.setItem("cardBorderEnabled", String(enabled));
+	localStorage.setItem(ff2Key("cardBorderEnabled"), String(enabled));
 	if (enabled) {
 		document.documentElement.classList.add("enable-card-border");
 	} else {
@@ -1003,7 +1357,7 @@ export function getStoredCardFollowThemeEnabled(): boolean {
 	if (typeof localStorage === "undefined") {
 		return getDefaultCardFollowThemeEnabled();
 	}
-	const stored = localStorage.getItem("cardFollowThemeEnabled");
+	const stored = ff2GetRaw("cardFollowThemeEnabled");
 	if (stored === null) {
 		return getDefaultCardFollowThemeEnabled();
 	}
@@ -1017,7 +1371,7 @@ export function setCardFollowThemeEnabled(enabled: boolean): void {
 	) {
 		return;
 	}
-	localStorage.setItem("cardFollowThemeEnabled", String(enabled));
+	localStorage.setItem(ff2Key("cardFollowThemeEnabled"), String(enabled));
 	if (enabled) {
 		document.body.classList.add("card-follow-theme-hue");
 	} else {

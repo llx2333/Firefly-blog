@@ -14,6 +14,7 @@ import {
 } from "@/utils/grid-layout-utils";
 import { scrollFunction } from "@/utils/scroll-utils";
 import {
+	ff2GetRaw,
 	syncBannerHomeTextVisibility,
 	updateNavbarTransparency,
 } from "@/utils/setting-utils";
@@ -271,10 +272,9 @@ function registerSwupHooks(): void {
 		}
 
 		// 同步主题状态 - 解决从首页进入文章页面时代码块渲染问题
+		// 批23：主题域键已迁移至 ff2. 前缀，缺失时兜底读旧键
 		const storedTheme =
-			localStorage.getItem("theme") ||
-			siteConfig.themeColor.defaultMode ||
-			"light";
+			ff2GetRaw("theme") || siteConfig.themeColor.defaultMode || "light";
 		let isDark = false;
 
 		// 处理 system 模式

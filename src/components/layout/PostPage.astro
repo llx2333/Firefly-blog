@@ -64,7 +64,8 @@ const coverPositionClass =
 <!-- 立即执行脚本：防止刷新时的布局闪烁 -->
 <script is:inline define:vars={{ defaultLayout, mobileDefaultLayout, columnWidth }}>
   (function() {
-    const savedLayout = localStorage.getItem('postListLayout');
+    // 批23：主题域键已迁移至 ff2. 前缀（Layout 头部脚本完成迁移，此处新键缺失兜底读旧键）
+    const savedLayout = localStorage.getItem('ff2.postListLayout') ?? localStorage.getItem('postListLayout');
     // 根据视口宽度确定有效的默认布局
     const effectiveDefault = window.innerWidth < 780 ? mobileDefaultLayout : defaultLayout;
     // 低于380px强制网格模式
@@ -95,13 +96,15 @@ const coverPositionClass =
 </script>
 
 <script>
+  import { ff2GetRaw } from "@/utils/setting-utils";
+
   // 动态布局切换脚本
   function initLayout() {
     const postListContainer = document.getElementById("post-list-container");
     if (!postListContainer) return;
 
-    // 从localStorage读取用户偏好
-    const savedLayout = localStorage.getItem("postListLayout");
+    // 从localStorage读取用户偏好（批23：ff2. 前缀，缺失时兜底读旧键）
+    const savedLayout = ff2GetRaw("postListLayout");
     const defaultLayout =
       postListContainer.getAttribute("data-default-layout") || "list";
     const mobileDefaultLayout =

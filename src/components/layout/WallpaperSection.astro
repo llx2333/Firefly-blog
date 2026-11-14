@@ -392,11 +392,24 @@ const hasPairSlides =
             var transitioning = false;
 
             // 当前壁纸风格：main=田园（src）alt=流萤（altSrc）。
-            // 开关打开且 localStorage 存过 alt 才启用备用组；备用组没渲染时回退 main
+            // 开关打开且 localStorage 存过 alt 才启用备用组；备用组没渲染时回退 main。
+            // 批23：键已迁移至 ff2.wallpaperSet（Layout 头部脚本完成迁移，此处新键缺失兜底读旧键；
+            // 旧键只信 main——污染 alt 不得经旧键复活，流萤须由面板写入 ff2.wallpaperSet）
+            function ff2GetWp(key) {
+                try {
+                    var v = localStorage.getItem('ff2.' + key);
+                    if (v !== null) return v;
+                    if (key === 'wallpaperSet') {
+                        var legacy = localStorage.getItem(key);
+                        return legacy === 'main' ? 'main' : null;
+                    }
+                    return localStorage.getItem(key);
+                } catch (e) { return null; }
+            }
             var activeSet = 'main';
             if (container.dataset.wallpaperSetSwitchable === 'true') {
                 try {
-                    if (localStorage.getItem('wallpaperSet') === 'alt') activeSet = 'alt';
+                    if (ff2GetWp('wallpaperSet') === 'alt') activeSet = 'alt';
                 } catch (e) {}
                 if (activeSet === 'alt' && !container.querySelector('.slide-item[data-wallpaper-set="alt"]')) {
                     activeSet = 'main';
@@ -412,7 +425,7 @@ const hasPairSlides =
 
             function isCarouselEnabled() {
                 if (!switchable) return defaultEnabled;
-                var stored = localStorage.getItem('bannerCarouselEnabled');
+                var stored = ff2GetWp('bannerCarouselEnabled');
                 if (stored === null) return defaultEnabled;
                 return stored === 'true';
             }
