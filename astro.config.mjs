@@ -44,6 +44,7 @@ import rehypeEmailProtection from "./src/plugins/rehype-email-protection.mjs";
 import rehypeExternalLinks from "./src/plugins/rehype-external-links.mjs";
 import rehypeFigure from "./src/plugins/rehype-figure.mjs";
 import rehypeImageReferrerPolicy from "./src/plugins/rehype-image-referrerpolicy.mjs";
+import { indentGuidesEcPlugin } from "./src/plugins/rehype-indent-guides.mjs";
 import { rehypeMermaid } from "./src/plugins/rehype-mermaid.mjs";
 import { rehypePlantuml } from "./src/plugins/rehype-plantuml.mjs";
 import { parseDirectiveNode } from "./src/plugins/remark-directive-rehype.js";
@@ -163,6 +164,14 @@ export default defineConfig({
 			},
 		}),
 		expressiveCode({
+			// 批31 轨道A：tab 视作 4 空格。EC 默认 tabWidth=2（rehype-expressive-code
+			// dist/index.js:138 解构默认值 + :218-219 在把代码交给 EC 引擎前用
+			// `replace(/\t/g, " ".repeat(tabWidth))` 展开 tab；astro-expressive-code
+			// dist/index.js:488-494 显式透传该选项），默认 2 会让 tab 缩进代码块的
+			// 显示层级只有源码一半、缩进竖线错位。改 4 后与编辑侧（CM tabSize 4）、
+			// 缩进竖线单位一致。注意：此展开是 EC 既有的渲染前归一化，文章页复制
+			// 输出里 1 个 tab 会变成 4 个空格（与源码缩进语义一致）。
+			tabWidth: 4,
 			themes: [expressiveCodeConfig.darkTheme, expressiveCodeConfig.lightTheme],
 			useDarkModeMediaQuery: false,
 			themeCssSelector: (theme) => `[data-theme='${theme.name}']`,
@@ -201,6 +210,10 @@ export default defineConfig({
 							}),
 						]
 					: []),
+				// 批31 轨道A：文章页缩进竖线（VSCode 式）。必须放在插件数组末尾——
+				// postprocessRenderedLine 按注册顺序执行，末尾注册保证在行号等插件行渲染之后
+				// 处理。选型依据见 src/plugins/rehype-indent-guides.mjs 头注释。
+				indentGuidesEcPlugin,
 			],
 			defaultProps: {
 				wrap: false,

@@ -23,10 +23,11 @@
 	--indent-marker-active-bg-color: rgba(255, 255, 255, 0.32);
 }
 
-/* CM 内部滚动区用窄滚动条，观感与全站内部滚动一致 */
-.write-cm .cm-scroller {
-	scrollbar-width: thin;
-}
+/* CM 内部滚动区禁止自写 scrollbar-width（批31 修复，勿改回）：
+   Chrome 121+ 元素上标准 scrollbar-width 一旦生效就整体禁用 ::-webkit-scrollbar
+   自绘（custom-scrollbar.css 顶部注释记载的同款坑，2026-11 实测复现——批30 在此
+   写了 thin 导致编辑侧滚区退化成原生箭头条）。删掉后全站胶囊自绘自然接管此处，
+   Firefox 走 custom-scrollbar.css @-moz-document 的 thin 版本，同样无需重复声明。 */
 
 /* ===== 模态弹窗表面 =====
    普通卡片走 --card-bg-transparent（默认 0.79），壁纸会透过弹窗，提示文字发糊；
