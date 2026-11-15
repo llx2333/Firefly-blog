@@ -46,6 +46,14 @@ import {
 	uploadPendingImages,
 } from "@/utils/write/drafts";
 import {
+	getLuaStatus,
+	type LuaStatus,
+	onLuaLayout,
+	registerEditorCommand,
+	reloadLuaConfig,
+	subscribeLuaStatus,
+} from "@/utils/write/editor-config";
+import {
 	emptyFrontmatter,
 	type PostFrontmatter,
 	parsePostFile,
@@ -77,10 +85,12 @@ import {
 	sanitizeImageName,
 	urlFileNameBase,
 } from "@/utils/write/images";
+import { applyIndentGuidesToMarkedHtml } from "@/utils/write/indent-guides";
 import { hoistCodeLanguages } from "@/utils/write/preview";
 import { createScrollSync } from "@/utils/write/scroll-sync";
 import { persistToken } from "@/utils/write/session";
 import { timestampPrefix, todayDateString } from "@/utils/write/slug";
+import ConfigDialog from "./ConfigDialog.svelte";
 import DateField from "./DateField.svelte";
 import ImageNameDialog from "./ImageNameDialog.svelte";
 
@@ -176,6 +186,9 @@ let cmHandle: CmEditorHandle | null = null;
 /** P2：预览卡内部滚动容器（scroll-sync 对端） */
 let previewCard = $state<HTMLDivElement | null>(null);
 let imageInput = $state<HTMLInputElement | null>(null);
+// 批31：lua 配置弹层与状态徽标（错误时顶栏亮红点；配置热应用走 reloadLuaConfig）
+let configOpen = $state(false);
+let luaStatus = $state<LuaStatus>(getLuaStatus());
 
 /** 三态按钮轨（P3，用户图二：预览卡右外沿竖排） */
 const layoutButtons: { value: EditorLayout; label: string }[] = [
@@ -242,10 +255,15 @@ const preview = $derived.by(() => {
 		const html = marked.parse(body, { async: false, gfm: true });
 		if (typeof html !== "string")
 			return { html: "", error: "预览返回异常结果" };
-		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再消毒
+		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再提语言徽章、
+		// 注缩进竖线锚点（hoist 同层；sanitize 会剥 style，锚点必须消毒之后注入）
 		const localized = localizePreviewImages(html, resolvePreviewImage);
 		const hoisted = hoistCodeLanguages(localized);
-		return { html: sanitizeHtml(hoisted, sanitizeConfig), error: "" };
+		const sanitized = sanitizeHtml(hoisted, sanitizeConfig);
+		return {
+			html: applyIndentGuidesToMarkedHtml(sanitized),
+			error: "",
+		};
 	} catch (error) {
 		return {
 			html: "",
@@ -527,12 +545,33 @@ $effect(() => {
 		handle = created;
 		cmHandle = created;
 		cmReady = true;
+		if (!disposed && isLoggedIn) {
+			// 批31 lua 配置初始化：先注册 save 命令（lua ff.map 右值引用）再拉配置执行；
+			// 失败兜底在 reloadLuaConfig 内部（错误徽标 + 编辑器照常可用）
+			registerEditorCommand("save", () => void save());
+			void reloadLuaConfig(token, created);
+		}
 	});
 	return () => {
 		disposed = true;
 		handle?.destroy();
 		if (handle && cmHandle === handle) cmHandle = null;
 		cmReady = false;
+	};
+});
+
+// 批31：lua 配置状态徽标订阅（顶栏红点）；layout 热应用（ff.opt.layout 写偏好并切布局）
+$effect(() => {
+	if (mode !== "editing") return;
+	const unsub = subscribeLuaStatus((status) => {
+		luaStatus = status;
+	});
+	const offLayout = onLuaLayout((next) => {
+		layout = next;
+	});
+	return () => {
+		unsub();
+		offLayout();
 	};
 });
 
@@ -1306,6 +1345,20 @@ async function insertAtCursor(text: string) {
 						</svg>
 						Vim {vimOn ? "开" : "关"}
 					</button>
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs relative"
+						onclick={() => (configOpen = true)}
+						title="编辑器 lua 配置（tab 宽度 / 键位映射 / vim / 布局）"
+					>
+						配置
+						{#if luaStatus.state === "error"}
+							<span
+								class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-600"
+								title={luaStatus.message}
+							></span>
+						{/if}
+					</button>
 				{/if}
 				<span class="flex-1"></span>
 				<!-- 载入完成前不显示远端状态与动作：sha 还没拿到，徽标会闪出「远端还没有 / 重新验证」 -->
@@ -1731,6 +1784,14 @@ async function insertAtCursor(text: string) {
 		oncancel={cancelImageName}
 	/>
 {/if}
+
+<!-- 编辑器 lua 配置弹层（批31）：文件树 + CM6 编辑 + 保存/重载热应用 -->
+<ConfigDialog
+	bind:open={configOpen}
+	{token}
+	editorHandle={cmHandle}
+	onClose={() => (configOpen = false)}
+/>
 
 <!-- toast -->
 {#if notice}

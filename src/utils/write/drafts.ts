@@ -472,8 +472,11 @@ export async function deleteDraftFile(
 	});
 }
 
-/** 列草稿分支目录；分支/目录不存在都按空处理（浏览列表不得触发建分支） */
-export async function listDraftDir(
+/**
+ * 列草稿分支目录原始条目（文件 + 子目录都要，供递归遍历用）；
+ * 分支/目录不存在都按空处理（浏览列表不得触发建分支）。
+ */
+async function listDraftEntries(
 	token: string,
 	dir: string,
 ): Promise<ContentsEntry[]> {
@@ -483,13 +486,65 @@ export async function listDraftDir(
 			`${repoRoot}/contents/${apiContentsPath(dir)}?ref=${DRAFT_BRANCH}&t=${Date.now()}`,
 		);
 		const entries = (await res.json()) as ContentsEntry[];
-		return Array.isArray(entries)
-			? entries.filter((entry) => entry.type === "file")
-			: [];
+		return Array.isArray(entries) ? entries : [];
 	} catch (error) {
 		if (error instanceof GitHubError && error.kind === "not-found") return [];
 		throw error;
 	}
+}
+
+/** 列草稿分支目录（仅文件）；分支/目录不存在都按空处理（不得触发建分支） */
+export async function listDraftDir(
+	token: string,
+	dir: string,
+): Promise<ContentsEntry[]> {
+	const entries = await listDraftEntries(token, dir);
+	return entries.filter((entry) => entry.type === "file");
+}
+
+/**
+ * 递归列举草稿分支某目录下全部文件（含子目录，批31 lua 配置树用）。
+ * 广度优先逐层走 contents API；单层失败不炸整棵（跳过该层，尽力而为）。
+ */
+export async function listDraftTree(
+	token: string,
+	dir: string,
+): Promise<ContentsEntry[]> {
+	const out: ContentsEntry[] = [];
+	let frontier: string[] = [dir];
+	while (frontier.length > 0) {
+		const next: string[] = [];
+		const layers = await Promise.all(
+			frontier.map(async (d) => {
+				try {
+					return await listDraftEntries(token, d);
+				} catch {
+					return []; // 单层列举失败不阻塞整树（与清扫流程同款尽力而为）
+				}
+			}),
+		);
+		for (const entries of layers) {
+			for (const entry of entries) {
+				if (entry.type === "dir") next.push(entry.path);
+				else out.push(entry);
+			}
+		}
+		frontier = next;
+	}
+	return out;
+}
+
+/**
+ * 写草稿分支任意相对路径的文本文件（批31 lua 配置树等通用场景，文章/插图
+ * 各自的专用函数不变）。目录随路径在 git 里隐式存在，无需先建目录。
+ */
+export function saveDraftFile(
+	token: string,
+	path: string,
+	text: string,
+	message: string,
+): Promise<{ sha: string }> {
+	return writeDraftRaw(token, path, encodeBase64(text), message);
 }
 
 /** 某分支某路径最近一次提交时间（ISO8601）；查不到返回 null（时间仅用于新旧提示） */
