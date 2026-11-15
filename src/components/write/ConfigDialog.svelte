@@ -373,13 +373,13 @@ const statusDot: Record<LuaStatus["state"], string> = {
 
 {#if open}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 text-90"
 		role="dialog"
 		aria-modal="true"
 		aria-label="编辑器 lua 配置"
 	>
 		<div
-			class="card-base w-full max-w-4xl rounded-(--radius-large) p-5 flex flex-col"
+			class="bg-[color:var(--card-bg)] w-full max-w-4xl rounded-(--radius-large) p-5 flex flex-col"
 			style="height: min(80vh, 720px)"
 		>
 			<!-- 头部：标题 + 配置状态徽标 -->

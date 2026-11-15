@@ -86,6 +86,9 @@ export function guideSpanHtml(level: number): string {
  *
  * 竖线画法：锚点零宽贴行首，::before 横向铺 N*4ch 宽，repeating-gradient 每 4ch
  * 末尾画 1px——即竖线落在第 4/8/…/N*4 字符列（层级 1..N，与编辑器侧一致，第 0 列不画）。
+ * 竖线下延 0.3em（height: calc(100% + 0.3em)）：prose 链给 code 单独 font-size 后
+ * 锚点的 1lh 小于行盒 strut（pre 的 line-height），每行底部会露出断口，
+ * 下延与下一行线段重叠补成连续线。
  */
 export const INDENT_GUIDES_CSS = `
 .${INDENT_GUIDE_CLASS} {
@@ -107,7 +110,7 @@ html.dark .${INDENT_GUIDE_CLASS} {
 	position: absolute;
 	left: 0;
 	top: 0;
-	height: 100%;
+	height: calc(100% + 0.3em);
 	width: calc(var(--ig-n, 0) * ${INDENT_GUIDE_TAB_SIZE}ch);
 	background-image: repeating-linear-gradient(
 		to right,

@@ -47,7 +47,7 @@ function confirm() {
 	aria-modal="true"
 	aria-label="命名这张图片"
 >
-	<div class="card-base w-full max-w-md rounded-(--radius-large) p-6">
+	<div class="bg-[color:var(--card-bg)] w-full max-w-md rounded-(--radius-large) p-6">
 		<div class="text-sm font-medium text-90 mb-4">命名这张图片</div>
 		<img
 			src={previewUrl}
