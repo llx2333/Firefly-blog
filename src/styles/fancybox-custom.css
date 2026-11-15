@@ -2,8 +2,20 @@
 .fancybox__container {
   /* v6 背景变量是 --fancybox-backdrop-bg（旧版 --fancybox-bg 已不存在） */
   --fancybox-backdrop-bg: rgba(0, 0, 0, 0.9);
-  /* 初始 fit ≈ 90% 视口：slide 四周留 5vh/5vw 内边距，露出黑幕（v6 无 fitToView 选项） */
-  --f-carousel-slide-padding: 5vh 5vw;
+  /* 初始 fit ≈ 80% 视口：slide 四周留 10vh/10vw 内边距，露出黑幕（v6 无 fitToView 选项） */
+  --f-carousel-slide-padding: 10vh 10vw;
+}
+
+/* 光标恒为抓取：覆写 v6 的 will-zoom-in(zoom-in) / will-zoom-out / can-drag 规则，
+   本文件在 fancybox.css 之后加载、同特异性下后者生效；拖动态 grabbing 由
+   更高特异性的 .is-dragging 规则保留。 */
+.fancybox__slide .f-panzoom__wrapper {
+  cursor: grab;
+}
+
+.fancybox__slide .f-panzoom__wrapper.is-dragging,
+.fancybox__viewport .f-panzoom__wrapper.is-dragging {
+  cursor: grabbing;
 }
 
 .fancybox__toolbar {

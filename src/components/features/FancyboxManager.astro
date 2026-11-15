@@ -85,7 +85,7 @@
     // Panzoom) / Thumbs / Lazyload 都是 Carousel 的插件选项，必须嵌套在 Carousel 下。
     // v5 风格的顶层写法（Toolbar/Panzoom/Thumbs/infinite/preload）会被静默忽略，
     // fitToView/animated/caption 在 v6 已不存在；初始 fit 尺寸由
-    // fancybox-custom.css 的 --f-carousel-slide-padding 控制（≈90% 视口）。
+    // fancybox-custom.css 的 --f-carousel-slide-padding 控制（≈80% 视口）。
     return {
       Carousel: {
         Toolbar: {
@@ -100,6 +100,11 @@
           Panzoom: {
             maxScale: 3,
             minScale: 1,
+            // 点击/双击图片一律无动作（缩放只走工具栏按钮与滚轮，不受影响）；
+            // 光标由 fancybox-custom.css 覆写为恒 grab。
+            clickAction: false,
+            dblClickAction: false,
+            singleClickAction: false,
           },
         },
         Lazyload: { preload: 2 },
