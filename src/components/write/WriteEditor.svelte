@@ -9,7 +9,7 @@
  */
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
-import { onDestroy, onMount, tick } from "svelte";
+import { onDestroy, onMount, tick, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import { registerDirtyGuard } from "@/utils/dirty-guard";
 import {
@@ -18,6 +18,15 @@ import {
 	readVerifiedLogin,
 	resolveToken,
 } from "@/utils/write/auth";
+import {
+	type CmEditorHandle,
+	createMarkdownEditor,
+	type EditorLayout,
+	readLayoutPref,
+	readVimPref,
+	writeLayoutPref,
+	writeVimPref,
+} from "@/utils/write/cm-editor";
 import {
 	DRAFT_BRANCH,
 	deleteDraftFile,
@@ -67,8 +76,10 @@ import {
 	reconcileRefs,
 	safeDecode,
 	sanitizeImageName,
+	urlFileNameBase,
 } from "@/utils/write/images";
 import { hoistCodeLanguages } from "@/utils/write/preview";
+import { createScrollSync } from "@/utils/write/scroll-sync";
 import { persistToken } from "@/utils/write/session";
 import {
 	fileNameToSlug,
@@ -184,13 +195,29 @@ let tagsInput = $state("");
 let seriesOrderInput = $state<string | number | null>("");
 let showFrontmatter = $state(true);
 let mobileTab = $state<"edit" | "preview">("edit");
+// P3：桌面三态布局（仅编辑/双窗/仅预览），偏好存 ff.editor.layout；<md 仍是 tab 切换
+let layout = $state<EditorLayout>(readLayoutPref());
+// P7：vim 模式开关（默认关），偏好存 ff.editor.vim
+let vimOn = $state(readVimPref());
 let editorLoading = $state(false);
 let editorError = $state("");
 let conflictPending = $state(false);
 let saving = $state(false);
 let deleting = $state(false);
-let bodyTextarea = $state<HTMLTextAreaElement | null>(null);
+/** CM6 宿主与句柄：句柄不进 $state（EditorView 内部状态多，代理化无意义） */
+let cmHost = $state<HTMLDivElement | null>(null);
+let cmReady = $state(false);
+let cmHandle: CmEditorHandle | null = null;
+/** P2：预览卡内部滚动容器（scroll-sync 对端） */
+let previewCard = $state<HTMLDivElement | null>(null);
 let imageInput = $state<HTMLInputElement | null>(null);
+
+/** 三态按钮轨（P3，用户图二：预览卡右外沿竖排） */
+const layoutButtons: { value: EditorLayout; label: string }[] = [
+	{ value: "edit", label: "仅编辑" },
+	{ value: "split", label: "双窗" },
+	{ value: "preview", label: "仅预览" },
+];
 
 // --- 插图随文保存（裁决纯逻辑见 utils/write/images） ---
 /**
@@ -446,6 +473,71 @@ $effect(() => {
 		() => !dirty || window.confirm("有未保存的修改，确定离开吗？"),
 	);
 });
+
+// --- CM6 装配（P5/P6/P7，依赖在客户端动态加载）---
+// 宿主挂载后异步创建；editorLoading / 离开编辑视图会销毁宿主，实例随之销毁。
+// 初始 body / vim 偏好走 untrack：它们的后续变化分别由同步 effect 与 setVim 处理，
+// 不能触发本 effect 重建编辑器（重建会丢光标、丢撤销栈、丢滚动位置）。
+$effect(() => {
+	const host = cmHost;
+	if (!host || editorLoading) return;
+	let disposed = false;
+	let handle: CmEditorHandle | null = null;
+	void createMarkdownEditor(host, {
+		value: untrack(() => body),
+		placeholder: "在这里书写正文（Markdown），支持 Ctrl+V 直接粘贴图片……",
+		onDocChange: (value) => {
+			body = value;
+		},
+		vimEnabled: untrack(() => vimOn),
+	}).then((created) => {
+		if (disposed) {
+			created.destroy();
+			return;
+		}
+		handle = created;
+		cmHandle = created;
+		cmReady = true;
+	});
+	return () => {
+		disposed = true;
+		handle?.destroy();
+		if (handle && cmHandle === handle) cmHandle = null;
+		cmReady = false;
+	};
+});
+
+// 外部改写 body（载入文章 / 暂存发布流程改写插图路径）→ 反映进 CM；
+// CM 自身 doc 变化回流 body 相等时 setValue 是 no-op，不会成环
+$effect(() => {
+	if (!cmReady) return;
+	cmHandle?.setValue(body);
+});
+
+// P2：双窗态比例滚动同步（CM scroller ↔ 预览卡）；非 split 布局自动停用
+$effect(() => {
+	if (!cmReady) return;
+	const scroller = cmHandle?.scroller;
+	const preview = previewCard;
+	if (!scroller || !preview) return;
+	const sync = createScrollSync(scroller, preview, {
+		enabled: () => layout === "split",
+	});
+	return () => sync.destroy();
+});
+
+/** P3：切布局态并持久化（ff.editor.layout，刷新保持） */
+function setLayout(next: EditorLayout) {
+	layout = next;
+	writeLayoutPref(next);
+}
+
+/** P7：vim 热开关（ff.editor.vim，默认关；Compartment 重配不重建编辑器） */
+async function toggleVim() {
+	vimOn = !vimOn;
+	writeVimPref(vimOn);
+	await cmHandle?.setVim(vimOn);
+}
 
 function storeToken(value: string) {
 	token = value;
@@ -1299,13 +1391,15 @@ function readFileBase64(file: File): Promise<string> {
 	});
 }
 
-/** 待上传表登记；同 URL 重复插入时回收旧 blob，避免泄漏 */
+/** 待上传表登记；同 URL 重复插入时回收旧 blob，避免泄漏。
+ * srcBase 盖章创建时的文件名基：live effect 按手改路径重键（键变新名）后，
+ * 保存端 reconcileRefs ① 仍能据它批准 alt 跟随改名（批30 P1 返工）。 */
 function stageImage(url: string, base64: string, objectUrl: string) {
 	const existing = pendingImages.get(url);
 	if (existing && existing.objectUrl !== objectUrl) {
 		URL.revokeObjectURL(existing.objectUrl);
 	}
-	pendingImages.set(url, { base64, objectUrl });
+	pendingImages.set(url, { base64, objectUrl, srcBase: urlFileNameBase(url) });
 }
 
 async function handleImageSelected(event: Event) {
@@ -1364,8 +1458,9 @@ function cancelImageName() {
 async function handlePaste(event: ClipboardEvent) {
 	if (view !== "editor" || nameDialog) return;
 	const target = event.target;
+	// 元信息输入框与命名卡的输入框保持原生文本粘贴（CM 内容区是 contenteditable
+	// div，不会命中；图片粘贴已在 cm-editor.ts 的 paste handler 里阻断原生行为）
 	if (target instanceof HTMLInputElement) return;
-	if (target instanceof HTMLTextAreaElement && target !== bodyTextarea) return;
 	const images = imageFilesFromClipboard(event.clipboardData);
 	if (images.length === 0) return;
 	// 无登录态也拦下原生粘贴（避免把图片文件路径当文本粘进正文）
@@ -1405,24 +1500,13 @@ async function handlePaste(event: ClipboardEvent) {
 }
 
 async function insertAtCursor(text: string) {
-	const el = bodyTextarea;
-	// textarea 隐藏（手机端预览页签）时拿不到真实光标：退化为追加到文末，
-	// 否则 selectionStart 是旧值/0，插入点错乱还把焦点抢到看不见的输入框
-	if (!el || el.offsetParent === null) {
+	// CM 未就绪或宿主不可见（手机端预览页签）时退化为追加到文末：
+	// 看不见的编辑器没有真实光标，dispatch 进去插入点错乱还会抢焦点
+	if (!cmHandle || (cmHost?.offsetParent ?? null) === null) {
 		body = `${body}${text}\n`;
 		return;
 	}
-	const start = el.selectionStart ?? body.length;
-	const end = el.selectionEnd ?? body.length;
-	const before = body.slice(0, start);
-	const after = body.slice(end);
-	const prefix = before === "" || before.endsWith("\n") ? "" : "\n\n";
-	const inserted = `${prefix}${text}\n`;
-	body = `${before}${inserted}${after}`;
-	await tick();
-	const pos = before.length + inserted.length;
-	el.focus();
-	el.setSelectionRange(pos, pos);
+	cmHandle.insertAtCursor(text);
 }
 </script>
 
@@ -1631,10 +1715,29 @@ async function insertAtCursor(text: string) {
 				</button>
 				<button
 					type="button"
-					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
-					onclick={() => (showFrontmatter = !showFrontmatter)}
+					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs {vimOn
+						? "text-(--primary)"
+						: ""}"
+					onclick={() => void toggleVim()}
+					title="Vim 模式（hjkl 移动 / dd 删行 / i 插入）；偏好存本浏览器，刷新保持"
 				>
-					{showFrontmatter ? "收起文章信息" : "展开文章信息"}
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						width="13"
+						height="13"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						class="mr-1 inline-block align-[-2px]"
+						aria-hidden="true"
+					>
+						<path d="m4 17 6-6-6-6"></path>
+						<path d="M12 19h8"></path>
+					</svg>
+					Vim {vimOn ? "开" : "关"}
 				</button>
 				<span class="flex-1"></span>
 				<span
@@ -1903,7 +2006,7 @@ async function insertAtCursor(text: string) {
 					</div>
 				{/if}
 
-				<!-- 窄屏 tab 切换 / ≥md 双栏并排 -->
+				<!-- 窄屏 tab 切换不动 / ≥md 三态布局（P3：仅编辑/双窗/仅预览） -->
 				<div class="flex gap-2 mb-4 md:hidden">
 					<button
 						type="button"
@@ -1926,23 +2029,34 @@ async function insertAtCursor(text: string) {
 						预览
 					</button>
 				</div>
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+				<!-- relative：三态按钮轨绝对定位在预览卡右外沿（外卡 px-9 内边距空间内，不溢出容器） -->
+				<div
+					class="relative grid grid-cols-1 {layout === "split"
+						? "md:grid-cols-2"
+						: "md:grid-cols-1"} gap-4 items-start"
+				>
 					<div
-						class="card-base px-4 py-4 w-full {mobileTab === "edit" ? "" : "hidden"} md:block!"
+						class="card-base px-4 py-4 w-full {mobileTab === "edit" ? "" : "hidden"} {layout ===
+						"preview"
+							? "md:hidden!"
+							: "md:block!"}"
 					>
-						<textarea
-							bind:this={bodyTextarea}
-							bind:value={body}
-							spellcheck="false"
-							class="w-full min-h-[60vh] bg-transparent outline-hidden border-0 resize-y font-mono text-sm leading-7 text-75 placeholder:opacity-50"
-							placeholder="在这里书写正文（Markdown），支持 Ctrl+V 直接粘贴图片……"
-						></textarea>
+						<!-- CM6 编辑器（P5 缩进竖线 / P6 续行 / P7 vim），宿主只管挂载 -->
+						<div
+							bind:this={cmHost}
+							class="write-cm font-mono text-sm leading-7 text-75"
+						></div>
 					</div>
 					<div
+						bind:this={previewCard}
 						class="card-base px-6 md:px-9 pt-6 pb-4 w-full {mobileTab ===
 						"preview"
 							? ""
-							: "hidden"} md:block!"
+							: "hidden"} {layout === "edit"
+							? "md:hidden!"
+							: "md:block!"} {layout === "split"
+							? "md:max-h-[80vh] md:overflow-y-auto custom-scrollbar"
+							: "md:max-h-none md:overflow-visible"}"
 					>
 						{#if preview.error}
 							<p class="text-sm text-(--primary)">预览渲染出错：{preview.error}</p>
@@ -1952,6 +2066,64 @@ async function insertAtCursor(text: string) {
 								{@html preview.html}
 							</div>
 						{/if}
+					</div>
+					<!-- 三态按钮轨：<md 隐藏（移动端仍是 tab），≥md 竖排三枚 -->
+					<div
+						class="absolute left-full top-0 ml-1.5 hidden md:flex md:flex-col gap-1.5"
+						role="group"
+						aria-label="编辑器布局切换"
+					>
+						{#each layoutButtons as btn (btn.value)}
+							<button
+								type="button"
+								class="w-7 h-7 rounded-md flex items-center justify-center border transition-colors {layout ===
+								btn.value
+									? "border-(--primary)/50 bg-(--primary)/10 text-(--primary)"
+									: "border-black/10 dark:border-white/15 text-50 hover:bg-(--btn-plain-bg-hover)"}"
+								onclick={() => setLayout(btn.value)}
+								aria-label={btn.label}
+								aria-pressed={layout === btn.value}
+								title={btn.label}
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									aria-hidden="true"
+								>
+									<rect x="3" y="4" width="18" height="16" rx="2"></rect>
+									{#if btn.value === "edit"}
+										<rect
+											x="5.5"
+											y="6.5"
+											width="6"
+											height="11"
+											rx="1"
+											fill="currentColor"
+											stroke="none"
+										></rect>
+									{:else if btn.value === "split"}
+										<line x1="12" y1="4" x2="12" y2="20"></line>
+									{:else}
+										<rect
+											x="12.5"
+											y="6.5"
+											width="6"
+											height="11"
+											rx="1"
+											fill="currentColor"
+											stroke="none"
+										></rect>
+									{/if}
+								</svg>
+							</button>
+						{/each}
 					</div>
 				</div>
 			{/if}

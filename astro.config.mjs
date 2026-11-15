@@ -208,6 +208,15 @@ export default defineConfig({
 					shellsession: {
 						showLineNumbers: false,
 					},
+					// 批30 P4：圆点行只出现在 EC 终端框（is-terminal 的 .header + 三点图标），
+					// frames 插件选项里没有 frame 类型开关，只能按语言覆盖 frame prop：
+					// 以下终端语言（与 plugin-frames 的 isTerminalLanguage 名单一致）一律
+					// frame:"none"，.header 回归默认 display:none，圆点行整体消失；
+					// 行号/语言徽章分属独立插件不受影响，has-title 文件名标签栏保留。
+					"ansi,bash,bat,batch,cmd,console,fish,nu,nushell,powershell,ps,ps1,psd1,psm1,sh,shell,shellscript,shellsession,zsh":
+						{
+							frame: "none",
+						},
 				},
 			},
 			styleOverrides: {
@@ -232,8 +241,11 @@ export default defineConfig({
 				},
 			},
 			frames: {
-				// 保留原生复制按钮，外观由 src/styles/expressive-code.css 覆盖成主题风格
-				showCopyToClipboardButton: true,
+				// 批30 P4：复制按钮去掉——EC 默认 showCopyToClipboardButton: true
+				// （plugin-frames dist 默认表），整块删除会恢复默认复制按钮，必须显式 false。
+				// 圆点行（终端框 header）的去掉见上方 overridesByLang 的 frame:"none"。
+				// 行号与语言徽章分属 line-numbers / language-badge 插件，不受影响。
+				showCopyToClipboardButton: false,
 			},
 		}),
 		svelte(),

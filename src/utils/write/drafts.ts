@@ -42,6 +42,7 @@ import {
 	reconcileRefs,
 	rewriteImageRefs,
 	safeDecode,
+	urlFileNameBase,
 } from "./images";
 
 export const DRAFT_BRANCH = "write-drafts";
@@ -232,7 +233,9 @@ export async function prepareImageSaves(
 		}
 	}
 
-	// ② reconcile 裁决 + 正文改写（重命名/目录归一化落进正文，预览即时跟随）
+	// ② reconcile 裁决（重命名/目录归一化落进正文，预览即时跟随）。
+	// nextBody 在 ②-b 之后统一计算（批30 P1 返工）：搬运流的 alt 同步批准
+	// 也要进 rewrites，提前算定会让已上传图改名的 alt 跟随结构性缺失。
 	const plan = reconcileRefs(postImageRefs(body), pending, articleDirUrl);
 	for (const upload of plan.uploads) {
 		if (upload.refUrl !== upload.url) rewrites.set(upload.refUrl, upload.url);
@@ -240,17 +243,15 @@ export async function prepareImageSaves(
 	for (const rename of plan.renames) {
 		rewrites.set(rename.fromUrl, rename.toUrl);
 	}
-	const nextBody =
-		rewrites.size > 0
-			? rewriteImageRefs(body, (decoded) => rewrites.get(decoded) ?? null)
-			: body;
 
 	// ②-b 已上传图的手改路径 = 改名搬运（真实字节跟着引用走，仓库文件同步改名）
 	const baselineUrls = postImageRefs(baselineBodyOf(baselineText ?? "")).map(
 		(ref) => safeDecode(ref.url),
 	);
-	const currentUrls = postImageRefs(body).map((ref) => safeDecode(ref.url));
+	const currentRefs = postImageRefs(body);
+	const currentUrls = currentRefs.map((ref) => safeDecode(ref.url));
 	const uploadTargets = new Set(plan.uploads.map((u) => u.url));
+	const movedPairs: Array<{ fromUrl: string; toUrl: string }> = [];
 	for (const { fromUrl, toUrl } of pairRenamedUploads(
 		baselineUrls,
 		currentUrls,
@@ -317,6 +318,7 @@ export async function prepareImageSaves(
 			}
 			// 编辑器据此重映射已上传 URL 集与草稿预览缓存（旧键 → 新键）
 			plan.renames.push({ fromUrl, toUrl });
+			movedPairs.push({ fromUrl, toUrl });
 		} catch (error) {
 			warnings.push(
 				`图片改名 ${fromName} → ${toName} 失败：${describeGitHubError(error)}`,
@@ -324,6 +326,22 @@ export async function prepareImageSaves(
 			protectedDraftPaths.push(fromRepo);
 		}
 	}
+
+	// ②-b alt 同步（批30 P1 返工，S1 同款宁缺勿错）：搬运成功的引用若当前
+	// alt 与旧名文件名（去扩展名）完全一致 → 补「自映射」改写（URL 不动、
+	// alt 换成新名）；自写 alt（≠旧名）与空 alt 一律不动。
+	for (const { fromUrl, toUrl } of movedPairs) {
+		const ref = currentRefs.find((r) => safeDecode(r.url) === toUrl);
+		if (!ref || ref.alt === "" || ref.alt !== urlFileNameBase(fromUrl)) {
+			continue;
+		}
+		if (urlFileNameBase(toUrl) === ref.alt) continue;
+		rewrites.set(toUrl, toUrl); // 自映射：rewriteImageRefs 只同步 alt
+	}
+	const nextBody =
+		rewrites.size > 0
+			? rewriteImageRefs(body, (decoded) => rewrites.get(decoded) ?? null)
+			: body;
 
 	// ③ 发布目标：未知引用在线校验（非阻塞，失败项进 warnings）
 	if (target === "master") {

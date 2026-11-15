@@ -23,6 +23,14 @@ export interface PendingImage {
 	base64: string;
 	/** 本地预览 blob URL（插入时创建，随保存上传成功/删图回收） */
 	objectUrl: string;
+	/**
+	 * 创建时的文件名基（去扩展名）。编辑器 live effect 对手改路径按改名重键
+	 * （pendingImages 键变成新名）后，保存端 reconcileRefs 只能精确命中、② 的
+	 * 配对批准块永远够不到——alt 同步的「旧名」就此丢失。条目随键搬家用同一
+	 * 对象，srcBase 在创建时盖章即终生携带，保存端据此仍能批准 alt 跟随（批30
+	 * P1 返工，S1 端到端）。未盖章（旧调用方/外部构造）时回退按当前键名判定。
+	 */
+	srcBase?: string;
 }
 
 /** 文章文件名（可含路径与扩展名）→ 插图子目录名（去扩展名，保留嵌套层级） */
@@ -169,18 +177,59 @@ export function buildImageMarkdown(alt: string, url: string): string {
 }
 
 /**
- * 按裁决结果改写正文里的站内插图引用（保留 alt 与 title）；mapFn 收到
- * decode 后的 URL，返回新 URL 或 null（原样保留）。代码块里的示例引用
- * 也会被改写——与提取口径一致，属于已知简化。
+ * 按裁决结果改写正文里的站内插图引用；mapFn 收到 decode 后的 URL，返回新 URL
+ * 或 null（原样保留）。批30 起（P1）：路径改名时若旧 alt 与旧文件名（去扩展名）
+ * 完全一致，alt 同步为新文件名——用户自写的 alt（≠旧文件名）绝不覆盖；配对
+ * 不成功的引用 mapFn 返回 null，整段原样保留。目录归一化（文件名不变）时
+ * 新旧文件名相同，alt 天然不动。代码块里的示例引用也会被改写——与提取口径
+ * 一致，属于已知简化。
+ *
+ * 自映射约定（批30 P1）：mapFn 对某引用返回「与入参相同的 URL」视为命中且
+ * 只做 alt 同步（URL 不动）。这是 reconcileRefs 给「待上传图改名配对成功、
+ * 且旧 alt 与旧键文件名一致」的引用发出的同步批准信号——见其 ② 内注释。
  */
 export function rewriteImageRefs(
 	body: string,
 	mapFn: (decodedUrl: string) => string | null,
 ): string {
 	return body.replace(IMAGE_REF_RE, (raw, alt, url, title) => {
-		const next = mapFn(safeDecode(url ?? ""));
-		return next ? renderImageRef(alt ?? "", next, title ?? null) : raw;
+		const decoded = safeDecode(url ?? "");
+		const next = mapFn(decoded);
+		if (!next) return raw;
+		if (next === decoded) {
+			// 自映射 = 仅同步 alt：换成当前路径的文件名（去扩展名）；
+			// alt 为空、取不到文件名或本就一致时原样保留（宁缺勿错）。
+			const newAlt = alt === "" ? "" : urlFileNameBase(decoded);
+			if (!newAlt || newAlt === alt) return raw;
+			return renderImageRef(newAlt, next, title ?? null);
+		}
+		return renderImageRef(
+			syncAltWithRename(alt ?? "", decoded, next),
+			next,
+			title ?? null,
+		);
 	});
+}
+
+/** 引用 URL（decoded）→ 文件名去扩展名（无扩展名取末段原样）。
+ * 导出：drafts.ts ②-b 搬运流的 alt 同步批准与编辑器 stageImage 盖章共用。 */
+export function urlFileNameBase(url: string): string {
+	const name = url.slice(url.lastIndexOf("/") + 1);
+	return name.replace(/\.[a-z0-9]+$/i, "");
+}
+
+/**
+ * alt 跟随改名（宁缺勿错）：仅当旧 alt 与旧文件名（去扩展名）完全一致时才
+ * 改写为新文件名；新文件名取不到（畸形 URL）保持原 alt。
+ */
+function syncAltWithRename(
+	alt: string,
+	oldUrl: string,
+	newUrl: string,
+): string {
+	if (alt === "" || alt !== urlFileNameBase(oldUrl)) return alt;
+	const newName = urlFileNameBase(newUrl);
+	return newName || alt;
 }
 
 // ---------- 保存时裁决 ----------
@@ -261,6 +310,24 @@ export function reconcileRefs(
 				base64: entry.base64,
 				pendingKey: decoded,
 			});
+			// 批30 P1 返工（S1 端到端）：编辑器 live effect 已按手改路径把
+			// pendingImages 重键成新名，保存端走到这里全是精确命中，② 的配对
+			// 批准块（下方）永远够不到。改为按条目携带的 srcBase（创建时盖章）
+			// 补发「自映射」批准 rename（from === to）：drafts.ts 把它放进
+			// rewrites（新地址 → 新地址），rewriteImageRefs 自映射分支只同步
+			// alt 不动 URL；编辑器 applyImagePlan 对 from === to 一律跳过。
+			// 条件与 ② 批准块一致（宁缺勿错）：alt 非空、与原始键基完全一致、
+			// 当前名确实不同、无目录归一化改写重叠。
+			const origBase = entry.srcBase ?? urlFileNameBase(decoded);
+			const newBase = urlFileNameBase(target);
+			if (
+				ref.alt !== "" &&
+				ref.alt === origBase &&
+				newBase !== "" &&
+				newBase !== ref.alt
+			) {
+				renames.push({ fromUrl: decoded, toUrl: target });
+			}
 		}
 	}
 
@@ -302,6 +369,27 @@ export function reconcileRefs(
 				renamedFromUrl: fromKey,
 			});
 			renames.push({ fromUrl: fromKey, toUrl: target });
+			// 批30 P1：改名时让 alt 跟随（宁缺勿错）。改名的唯一入口是用户手改正文
+			// 路径，所以正文里该引用的 URL 已是新地址，rewrites 里的 旧键→新地址
+			// 永远命中不了它。这里追加一条「自映射」rename（from === to）作为 alt
+			// 同步的批准信号：drafts.ts 会把它原样放进 rewrites（新地址 → 新地址），
+			// rewriteImageRefs 按自映射分支只改 alt 不动 URL。编辑器 applyImagePlan
+			// 对 from === to 一律跳过（防 SvelteMap 同键重发），不会误搬缓存键。
+			// 条件（任一不满足就不加）：仅目录内改名（target 未挪目录，否则自映射
+			// 会覆盖 ② 里已有的目录归一化改写）；旧 alt 与原始键文件名完全一致
+			// （entry.srcBase 优先——条目可能已被编辑器 live effect 重键过，
+			// fromKey 已是新名，批30 P1 返工）；新旧文件名都取得到且确实不同。
+			const oldBase = entry.srcBase ?? urlFileNameBase(fromKey);
+			const newBase = urlFileNameBase(target);
+			if (
+				target === decodedRef &&
+				ref.alt !== "" &&
+				ref.alt === oldBase &&
+				newBase !== "" &&
+				newBase !== ref.alt
+			) {
+				renames.push({ fromUrl: decodedRef, toUrl: target });
+			}
 		}
 	}
 
