@@ -15,9 +15,11 @@
  *    div.expressive-code > (div.ec-collapse*) > figure.frame > pre[data-language]
  *    > code > div.ec-line > [div.gutter > div.ln 行号, div.code 代码体]。
  *
- * 约束：锚点 span 为空元素（textContent 逐字不变），插在 div.code 首位
- * （行号区不画）；算法与样式与本仓库 src/utils/write/indent-guides.ts 单源共享，
- * 保证文章页与编辑器预览两端一致。文件名沿用任务书清单（rehype- 前缀为历史命名）。
+ * 约束：锚点 span 为空元素（textContent 逐字不变），每块仅插一个、插在首行
+ * div.code 首位（行号区不画），::before 以 calc(行数 * 1lh) 画满整块高度——
+ * 容器级连续线（批34 重写，机理见 indent-guides.ts 头注释）；算法与样式与本仓库
+ * src/utils/write/indent-guides.ts 单源共享，保证文章页与编辑器预览两端一致。
+ * 文件名沿用任务书清单（rehype- 前缀为历史命名）。
  *
  * tab 缩进前置事实（2026-11-15 dev 探针定位）：tab→空格的展开发生在
  * rehype-expressive-code（astro-expressive-code 的 rehype 层，默认 tabWidth=2），
@@ -70,8 +72,11 @@ export const indentGuidesEcPlugin = {
 	hooks: {
 		postprocessRenderedLine(context) {
 			const { codeBlock, lineIndex, renderData } = context;
-			const level = getBlockIndentLevels(codeBlock)[lineIndex] ?? 0;
-			if (level <= 0) return;
+			// 每块只在首行插一次锚点（容器级连续线：一条 ::before 画满整块高度）
+			if (lineIndex !== 0) return;
+			const levels = getBlockIndentLevels(codeBlock);
+			const maxLevel = Math.max(...levels);
+			if (maxLevel <= 0) return;
 			const codeWrapper = findCodeWrapper(renderData.lineAst);
 			if (!codeWrapper) return;
 			codeWrapper.children.unshift({
@@ -79,7 +84,7 @@ export const indentGuidesEcPlugin = {
 				tagName: "span",
 				properties: {
 					className: [INDENT_GUIDE_CLASS],
-					style: `--ig-n: ${level}`,
+					style: `--ig-n: ${maxLevel}; --ig-lines: ${codeBlock.getLines().length}`,
 				},
 				children: [],
 			});

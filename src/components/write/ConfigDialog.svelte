@@ -142,10 +142,14 @@ async function ensureDialogEditor(): Promise<void> {
 						caretColor: "var(--primary, currentColor)",
 					},
 					".cm-cursor": { borderLeftColor: "var(--primary, currentColor)" },
+					// 选区色走站点 token 并反压 CM 内置 focused 默认色（同 cm-editor.ts 注释）
 					".cm-selectionBackground": {
-						backgroundColor:
-							"color-mix(in srgb, var(--primary, #4aa3c0) 30%, transparent)",
+						backgroundColor: "var(--selection-bg)",
 					},
+					"&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
+						{
+							backgroundColor: "var(--selection-bg)",
+						},
 				}),
 			],
 		}),

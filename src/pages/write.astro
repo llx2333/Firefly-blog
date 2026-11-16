@@ -17,8 +17,9 @@ const description = "在博客里直接书写与发布文章";
 ---
 
 <style is:global>
-	/* 批31 预览侧缩进竖线：与 src/utils/write/indent-guides.ts INDENT_GUIDES_CSS 同源同步；
-	 * 文章页侧由 EC 插件 baseStyles 注入（src/plugins/rehype-indent-guides.mjs）。 */
+	/* 预览侧缩进竖线：与 src/utils/write/indent-guides.ts INDENT_GUIDES_CSS 同源同步
+	 * （批34 容器级连续线重写）；文章页侧由 EC 插件 baseStyles 注入
+	 * （src/plugins/rehype-indent-guides.mjs）。 */
 	.ec-indent-guides {
 		display: inline-block;
 		width: 0;
@@ -36,7 +37,7 @@ const description = "在博客里直接书写与发布文章";
 		position: absolute;
 		left: 0;
 		top: 0;
-		height: calc(100% + 0.3em);
+		height: calc(var(--ig-lines, 1) * 1lh);
 		width: calc(var(--ig-n, 0) * 4ch);
 		background-image: repeating-linear-gradient(
 			to right,

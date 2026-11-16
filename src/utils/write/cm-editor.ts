@@ -423,10 +423,17 @@ export async function createMarkdownEditor(
 					".cm-line": { padding: "0 2px" },
 					".cm-cursor": { borderLeftColor: "var(--primary, currentColor)" },
 					".cm-placeholder": { color: "rgba(127, 127, 127, 0.6)" },
+					// 选区色统一走站点 ::selection 同款 token（明暗自适应，与全站一致）。
+					// CM 6.43 内置 focused 选区默认色（亮色态亮紫，暗色页面里即「白底白字」）
+					// 特异性更高，须按其结构（&.cm-focused > …）写更高特异性规则反压，
+					// 见批34 b34-diag3 实测。
 					".cm-selectionBackground": {
-						backgroundColor:
-							"color-mix(in srgb, var(--primary, #4aa3c0) 30%, transparent)",
+						backgroundColor: "var(--selection-bg)",
 					},
+					"&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
+						{
+							backgroundColor: "var(--selection-bg)",
+						},
 				}),
 			],
 		}),
