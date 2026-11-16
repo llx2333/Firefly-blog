@@ -96,6 +96,31 @@
     }
   }
 
+  /*
+   * 块级代码重置：上面的 code 是行内代码样式（inline 元素），背景落到 pre>code
+   * 会按行分片成逐行色块——暗色呈每行一个绿圆角块（缩进参考线像拼凑），亮色呈
+   * 浅绿底叠浅字（低对比的「白底白字」）。这里把 pre 内 code 的背景/内边距/圆角
+   * 还原、字色继承 pre 的主题前景（预览链 pre 为 EC 暗底浅字，恒定可读）；
+   * 行内代码 chips 不命中 pre，不受影响；读者侧 EC 的 code display/背景不受影响。
+   */
+  & pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    overflow: visible;
+    color: inherit;
+  }
+
+  /*
+   * EC pre 字色修正：typography 的 pre 字色恒为浅色（zinc-200，按「深底浅字」
+   * 设计），但 EC 的背景画在 .frame 层——亮色页面浅底浅字，未高亮文本近乎隐形
+   * （暗色页面碰巧底也深才没暴露）。这里换用随主题的 prose 正文字色
+   * （亮色深字 / 暗色浅字），token span 自带的高亮色不受影响。
+   */
+  & .expressive-code pre {
+    color: var(--tw-prose-body);
+  }
+
   .expressive-code {
     @apply my-4;
   }

@@ -469,7 +469,11 @@ export async function runLuaConfig(
 	const spec: LuaEditorSpec = { mappings, initError: null };
 	const initText = bundle.files.get(INIT_LUA_PATH);
 	if (initText === undefined) {
-		spec.initError = "lua/init.lua 不存在（将使用默认配置）";
+		// 空目录（lua/ 未初始化）不算错误：走「目录为空」ok 口径；
+		// 有其他 .lua 却缺入口才算异常（罕见，人工删除入口）。
+		if (bundle.files.size > 0) {
+			spec.initError = "lua/init.lua 不存在（将使用默认配置）";
+		}
 	} else {
 		try {
 			await engine.doString(initText);
