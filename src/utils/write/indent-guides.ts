@@ -15,6 +15,22 @@
  *   画穿（批34 整块画满即用户指出的「硬凑」「对不上」）；
  * - 第 k 条线横向位置 = 第 k 个缩进档左沿 x=(k-1)*4ch，与第 k-1 层祖先行的
  *   首字符对齐（原画在 k*4ch=本行行首，观感是给每行「关栏」而非结构 gutter）；
+ * - 批40 括号对延伸：段从开括号行贯通到闭括号行。VSCode 默认缩进线的段恒止于
+ *   闭合括号上一行（用户实测「离下面的闭合括号还有一段距离，根本不对成」）；
+ *   其 guides.bracketPairs 形态才从开括号行起画。这里取贯通形态并把闭括号行
+ *   本身也盖住，竖线贴住括号字、栏真正「围住」内容。判定纯文本级：紧邻行首
+ *   字符为括号且列位与本档左沿相同才延伸（链式，如 `}` `]` 连续闭括号），
+ *   非括号回退行/列位不齐不延伸（不误伤普通 dedent）。
+ * - 批40 行距基准解耦：段 y 几何（--ig-pos/--ig-size 里的行高单位）不再依赖
+ *   锚点自身字体——编辑器预览链 prose 把 code 缩到 12.25px（pre 14px，行距由
+ *   pre 的 strut 决定 24px），锚点继承 code 字体令其行高单位=21px，段 y 每行
+ *   漂 3px、`}` 行整行无线（批40 探针 B 端实证）。@property 把 --ig-lh 注册为
+ *   <length>，`pre, pre code div{--ig-lh:1lh}` 在行距决定元素上就地解析成绝对
+ *   px 随继承下传（B 侧=pre 的 strut；EC 侧=行容器 div.ec-line 自身——pre 无
+ *   显式 line-height，探针实证 1lh 在 pre 解析 23.75px≠行容器 24px），::before
+ *   与真实行盒严格同源；ch 基准保持锚点字体（=code 列宽）
+ *   不动，x 对齐不受影响。不支持 @property 的浏览器退回锚点字体解析（EC 侧
+ *   锚点与行容器同字体，本就正确，无回归）。
  *
  * 渲染形态（沿批34 的「每块一个锚点」，规避批31/32 按行分段的重叠横带）：
  * 锚点仍只有一个空 span（textContent 逐字不变），行区间写进 CSS 自定义属性，
@@ -31,8 +47,9 @@
  *   data-theme 选择器）。故默认线色白@0.17 供深底场景；EC 浅色浅底场景由
  *   html.dark/预览链上下文规则覆盖回黑@0.14，与编辑器侧 write-surface.css 的
  *   --indent-marker-bg-color 同族。
- * - 已知退化：代码行软换行时视觉行数 > 逻辑行数，段高按逻辑行数×1lh 偏短但
- *   保持连续；不支持 lh/ch/var 多层 background 的浏览器画不出线，布局不受影响
+ * - 已知退化：代码行软换行时视觉行数 > 逻辑行数，段高按逻辑行数偏短但
+ *   保持连续；不支持 lh/ch/var 多层 background 的浏览器画不出线，布局不受
+ *   影响；不支持 @property 的浏览器行距基准退回锚点字体口径（EC 侧无差别）。
  */
 
 /** guide 锚点类名：EC 侧与 marked 侧产出的 DOM 形态完全一致（三端同一份 CSS） */
@@ -57,6 +74,27 @@ function leadingIndentWidth(lineText: string): number {
 		}
 	}
 	return width;
+}
+
+/** 行首括号（批40 括号对延伸判定用）：开括号向上延伸、闭括号向下延伸 */
+const OPENING_BRACKETS = "([{";
+const CLOSING_BRACKETS = ")]}";
+
+/** 首个非空白字符的列位与字符（tab 按 4 折算）；整行空白返回 null */
+function firstCharMeta(
+	lineText: string,
+): { column: number; char: string } | null {
+	let column = 0;
+	for (const ch of lineText) {
+		if (ch === " ") {
+			column += 1;
+		} else if (ch === "\t") {
+			column += INDENT_GUIDE_TAB_SIZE;
+		} else {
+			return { column, char: ch };
+		}
+	}
+	return null;
 }
 
 /**
@@ -100,8 +138,15 @@ export interface GuideSegment {
 	lineCount: number;
 }
 
-/** 行区间切分：第 k 档的每段 = 连续 G≥k 的极大行区间 */
-export function computeGuideSegments(counts: number[]): GuideSegment[] {
+/**
+ * 行区间切分：第 k 档的每段 = 连续 G≥k 的极大行区间；传入 lines 时做批40
+ * 括号对延伸（见文件头）——段首前一行以本档左沿同列的开括号起头、段尾后一行
+ * 以同列的闭括号起头，段延伸到该行。
+ */
+export function computeGuideSegments(
+	counts: number[],
+	lines?: string[],
+): GuideSegment[] {
 	const max = counts.reduce((m, c) => Math.max(m, c), 0);
 	const segments: GuideSegment[] = [];
 	for (let stop = 1; stop <= max; stop++) {
@@ -113,6 +158,33 @@ export function computeGuideSegments(counts: number[]): GuideSegment[] {
 				segments.push({ stop, startLine: start, lineCount: i - start });
 				start = -1;
 			}
+		}
+	}
+	if (!lines) return segments;
+	for (const seg of segments) {
+		const column = (seg.stop - 1) * INDENT_GUIDE_TAB_SIZE;
+		while (seg.startLine > 0) {
+			const meta = firstCharMeta(lines[seg.startLine - 1]);
+			if (
+				!meta ||
+				meta.column !== column ||
+				!OPENING_BRACKETS.includes(meta.char)
+			) {
+				break;
+			}
+			seg.startLine -= 1;
+			seg.lineCount += 1;
+		}
+		while (seg.startLine + seg.lineCount < lines.length) {
+			const meta = firstCharMeta(lines[seg.startLine + seg.lineCount]);
+			if (
+				!meta ||
+				meta.column !== column ||
+				!CLOSING_BRACKETS.includes(meta.char)
+			) {
+				break;
+			}
+			seg.lineCount += 1;
 		}
 	}
 	return segments;
@@ -133,9 +205,14 @@ export function guideAnchorStyle(
 		.map(() => "linear-gradient(var(--ig-color), var(--ig-color))")
 		.join(",");
 	const pos = segments
-		.map((s) => `${(s.stop - 1) * INDENT_GUIDE_TAB_SIZE}ch ${s.startLine}lh`)
+		.map(
+			(s) =>
+				`${(s.stop - 1) * INDENT_GUIDE_TAB_SIZE}ch calc(${s.startLine} * var(--ig-lh, 1lh))`,
+		)
 		.join(",");
-	const size = segments.map((s) => `1px ${s.lineCount}lh`).join(",");
+	const size = segments
+		.map((s) => `1px calc(${s.lineCount} * var(--ig-lh, 1lh))`)
+		.join(",");
 	return [
 		`--ig-n:${maxStop}`,
 		`--ig-lines:${lineCount}`,
@@ -147,7 +224,7 @@ export function guideAnchorStyle(
 
 /** 逐行文本 → 锚点 style 值；整块无缩进（无段）返回 null */
 export function guideAnchorStyleForLines(lines: string[]): string | null {
-	const segments = computeGuideSegments(computeGuideCounts(lines));
+	const segments = computeGuideSegments(computeGuideCounts(lines), lines);
 	if (segments.length === 0) return null;
 	return guideAnchorStyle(segments, lines.length);
 }
@@ -198,8 +275,33 @@ export function applyIndentGuidesToMarkedHtml(html: string): string {
  * 恒白，默认值恒黑，html.dark 把两侧深底场景统一拉白。
  * pre code{tab-size:4}：预览侧 tab 渲染口径与算法（tab=4）一致；文章页 EC 侧
  * tab 已在构建期展开，此规则无效果。
+ *
+ * 行距基准 --ig-lh（批40）：y 几何不得用锚点自身的行高单位——编辑器预览链
+ * prose 把 code 缩到 12.25px 而行距由 pre strut（14px）决定，锚点 1lh=21px
+ * 每行漂 3px。@property 注册为 <length> 后，--ig-lh 在行距决定元素上就地
+ * 解析成绝对 px 随继承传给 ::before：B 侧=pre（strut）；EC 侧=行容器
+ * div.ec-line（pre 无显式 line-height，探针实证 1lh@pre=23.75px≠行容器
+ * 24px，段底每 11 行差 2.75px；行容器的 computed line-height 恒等于其自身
+ * 行盒所用行距，构造性正确）。不支持 @property 的浏览器按旧口径在 ::before
+ * 解析。
  */
 export const INDENT_GUIDES_CSS = `
+	@property --ig-lh {
+		syntax: "<length>";
+		inherits: true;
+		initial-value: 0px;
+	}
+
+	/* 行距解析点（批40）：B 侧行盒由 pre 的 strut 决定（pre>code 内无 div），
+	   在 pre 就地解析；EC 侧行容器是 div.ec-line——pre 自身无显式 line-height
+	   （探针实测继承 23.75px，1lh 在 pre 解析每行偏 0.25px、11 行段底差
+	   2.75px），改在行容器（pre code 下的 div）就地解析：其 computed
+	   line-height 恒等于自身行盒所用行距。B 侧无 div 不命中，两链各取所需。 */
+	pre,
+	pre code div {
+		--ig-lh: 1lh;
+	}
+
 	.${INDENT_GUIDE_CLASS} {
 	display: inline-block;
 	width: 0;
@@ -229,7 +331,7 @@ html.dark .${INDENT_GUIDE_CLASS} {
 	left: 0;
 	top: 0;
 	width: calc(var(--ig-n, 0) * ${INDENT_GUIDE_TAB_SIZE}ch + 1px);
-	height: calc(var(--ig-lines, 1) * 1lh);
+	height: calc(var(--ig-lines, 1) * var(--ig-lh, 1lh));
 	background-image: var(--ig-imgs, none);
 	background-position: var(--ig-pos, 0 0);
 	background-size: var(--ig-size, 0 0);
