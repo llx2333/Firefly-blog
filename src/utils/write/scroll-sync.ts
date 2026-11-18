@@ -3,13 +3,15 @@
  * 替换原先的「可视比例」百分比口径（两侧内容总高接近时像素距离几乎相等，
  * 且同屏内容互不对应，观感是「硬凑」；用户拍板直接替换，不留比例兜底）。
  *
- * 数据层：source-lines.ts 在预览链末端给每个顶层块打 data-line（源码行号）。
+ * 数据层：line-anchors.ts 在 marked 渲染期给每个**块级**元素打 data-line（源码行号，
+ * 含列表项内部的段落/代码块——批41 起不再只有顶层块，长列表中央也有锚点）。
  * 双向同步按锚点段内插值：
  * - 编辑→预览：取 CM 顶部可见行的浮点行号（行号 + 行内进度），落在哪个锚点段
  *   就按行距比例映射到预览 scrollTop——两侧滚动距离天然不同（各按各的内容
  *   高度换算），同屏内容实时对应，即 VSCode 预览的行为；
  * - 预览→编辑：预览 scrollTop 落在哪个锚点段，反算浮点行号 → CM scrollTop。
- * 收尾：任一侧滚到顶/底，对侧吸附到顶/底（纯行号锚点覆盖不到两端的死区）。
+ * 最后锚点之后按「末段行距/像素比」外推（两个方向对称），不再冻结在最后锚点；
+ * 任一侧滚到顶/底，对侧吸附到顶/底（纯行号锚点覆盖不到两端的死区）。
  *
  * 防振荡两件套沿用旧实现：
  * - 回声按值匹配：程序改写对侧 scrollTop 后，若对侧随后到来的 scroll 事件位置
@@ -20,9 +22,11 @@
  * - rAF 合帧：连续滚动一帧只算一次，丢掉中间态；每个方向独立槽位（CM6 measure
  *   会在程序滚动后微调 scroller scrollTop 再发一次事件，跨方向互吃会丢同步）。
  *
- * 锚点缓存：按 scrollHeight×clientHeight 签名惰性重建（覆盖图片加载等高度变化）；
- * 组件在正文/预览重渲时重建本句柄（= 缓存一并失效）。锚点缺失（如文档结构
- * 对不上未打标、内容不足一屏）时同步自动空转，不影响任何功能。
+ * 锚点缓存：按 scrollHeight×clientHeight 签名惰性重建，另挂 ResizeObserver
+ * （预览卡与内容层尺寸变化——图片/字体加载）和 MutationObserver（innerHTML 重渲）
+ * 主动失效；锚点按 top 排序后校验源码行号单调，乱序（对位错）直接弃用全部锚点，
+ * 宁可不同步也不送到错位置。锚点缺失（内容不足一屏等）时同步自动空转，
+ * 不影响任何功能。
  *
  * CM6 坐标口径（node_modules 实证）：heightMap 坐标 0 = 首行行顶；可见顶 =
  * scrollDOM.scrollTop - documentPadding.top；按行定位 = block.top + 行内进度
@@ -33,7 +37,7 @@
  */
 
 import type { EditorView } from "@codemirror/view";
-import { SOURCE_LINE_ATTR } from "./source-lines";
+import { SOURCE_LINE_ATTR } from "./line-anchors";
 
 export interface ScrollSyncOptions {
 	/** 是否同步（组件按布局态传入，如 () => layout === "split"）；默认恒开 */
@@ -76,12 +80,17 @@ export function createScrollSync(
 	let rafEditor = 0;
 	let rafPreview = 0;
 
-	// 锚点缓存：签名（高度）变了才重建；组件重建句柄时随作用域一并失效
+	// 锚点缓存：签名（高度）或 RO/MO 失效标记变化时重建
 	let anchors: Anchor[] | null = null;
 	let anchorSig = "";
 
 	function anchorSignature(): string {
 		return `${preview.scrollHeight}×${preview.clientHeight}`;
+	}
+
+	/** 内容/尺寸变化由观察器主动置空缓存（见下方 RO/MO） */
+	function invalidateAnchors() {
+		anchors = null;
 	}
 
 	function getAnchors(): Anchor[] {
@@ -105,9 +114,29 @@ export function createScrollSync(
 			});
 		}
 		list.sort((a, b) => a.top - b.top);
+		// 行号必须随视觉位置单调不减（同布局同块可相等，如 li 与其首个子块）；
+		// 出现下降说明对位错乱——弃用全部锚点，退化为不同步（宁缺勿错）
+		for (let i = 1; i < list.length; i++) {
+			if (list[i].line < list[i - 1].line) {
+				anchors = null;
+				anchorSig = "";
+				return [];
+			}
+		}
 		anchors = list;
 		anchorSig = sig;
 		return list;
+	}
+
+	/** 末段斜率（像素/行），供最后锚点之后的外推；段退化时返回 null */
+	function tailSlope(as: Anchor[]): number | null {
+		if (as.length < 2) return null;
+		const a = as[as.length - 2];
+		const b = as[as.length - 1];
+		const spanLines = b.line - a.line;
+		const spanPx = b.top - a.top;
+		if (spanLines <= 0 || spanPx <= 0) return null;
+		return spanPx / spanLines;
 	}
 
 	/** 编辑器顶部可见位置的浮点行号（1-based 行 + 行内进度 0..1） */
@@ -141,7 +170,11 @@ export function createScrollSync(
 				return as[i].top + k * (as[i + 1].top - as[i].top);
 			}
 		}
-		return as[as.length - 1].top;
+		// 最后锚点之后：按末段斜率外推（列表/代码块常延伸到文末，冻结会「右栏还在开头」）
+		const last = as[as.length - 1];
+		const slope = tailSlope(as);
+		if (slope === null) return last.top;
+		return last.top + (f - last.line) * slope;
 	}
 
 	/** 预览 scrollTop → 浮点行号：落点所在锚点段内按像素比例插值 */
@@ -156,7 +189,10 @@ export function createScrollSync(
 				return as[i].line + k * (as[i + 1].line - as[i].line);
 			}
 		}
-		return as[as.length - 1].line;
+		const last = as[as.length - 1];
+		const slope = tailSlope(as);
+		if (slope === null) return last.line;
+		return last.line + (scrollTop - last.top) / slope;
 	}
 
 	function clearEcho() {
@@ -194,7 +230,10 @@ export function createScrollSync(
 			let target: number | null = null;
 			if (preview.scrollTop <= 0) target = 0;
 			else if (preview.scrollTop >= maxP - 1) target = maxE;
-			else target = editorScrollValue(editorTargetFor(preview.scrollTop) ?? 0);
+			else {
+				const f = editorTargetFor(preview.scrollTop);
+				target = f === null ? null : editorScrollValue(f);
+			}
 			writeScroll(scroller, target);
 		}
 	}
@@ -245,6 +284,17 @@ export function createScrollSync(
 	scroller.addEventListener("scroll", onEditorScroll, { passive: true });
 	preview.addEventListener("scroll", onPreviewScroll, { passive: true });
 
+	// 预览内容变化 → 锚点缓存即刻作废（句柄不再随 body 逐键重建）：
+	// - MutationObserver：{@html} 整段换新（打字重渲）或预览链后处理改写子树；
+	// - ResizeObserver：图片/字体加载、窗口缩放导致内容层高度变化（这类变化
+	//   不一定改 scrollHeight 签名，但会移动块内锚点）。
+	const mo = new MutationObserver(invalidateAnchors);
+	mo.observe(preview, { childList: true, subtree: true, characterData: true });
+	const ro = new ResizeObserver(invalidateAnchors);
+	ro.observe(preview);
+	const content = preview.firstElementChild;
+	if (content) ro.observe(content);
+
 	return {
 		setEnabled(enabled: boolean) {
 			enabledFn = () => enabled;
@@ -252,6 +302,8 @@ export function createScrollSync(
 		destroy() {
 			scroller.removeEventListener("scroll", onEditorScroll);
 			preview.removeEventListener("scroll", onPreviewScroll);
+			mo.disconnect();
+			ro.disconnect();
 			if (rafEditor) cancelAnimationFrame(rafEditor);
 			if (rafPreview) cancelAnimationFrame(rafPreview);
 			clearTimeout(echoTimer);

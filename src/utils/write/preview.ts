@@ -9,9 +9,9 @@
  */
 export function hoistCodeLanguages(html: string): string {
 	return html.replace(
-		/<pre><code class="language-([^"]*)">([\s\S]*?)<\/code><\/pre>/g,
-		(_raw, lang: string, code: string) =>
-			`<div class="code-block-wrap" data-language="${lang}"><pre><code>${code}</code></pre></div>`,
+		/<pre([^>]*)><code class="language-([^"]*)">([\s\S]*?)<\/code><\/pre>/g,
+		(_raw, preAttrs: string, lang: string, code: string) =>
+			`<div class="code-block-wrap" data-language="${lang}"><pre${preAttrs}><code>${code}</code></pre></div>`,
 	);
 }
 

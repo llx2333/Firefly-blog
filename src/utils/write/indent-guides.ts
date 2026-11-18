@@ -251,9 +251,9 @@ function applyGuidesToCodeInner(innerHtml: string): string {
  */
 export function applyIndentGuidesToMarkedHtml(html: string): string {
 	return html.replace(
-		/<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g,
-		(_raw, codeAttrs: string, inner: string) =>
-			`<pre><code${codeAttrs}>${applyGuidesToCodeInner(inner)}</code></pre>`,
+		/<pre([^>]*)><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g,
+		(_raw, preAttrs: string, codeAttrs: string, inner: string) =>
+			`<pre${preAttrs}><code${codeAttrs}>${applyGuidesToCodeInner(inner)}</code></pre>`,
 	);
 }
 

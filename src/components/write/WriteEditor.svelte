@@ -7,7 +7,6 @@
  * 手改路径 = 重命名、删掉引用行 = 删图，保存时统一裁决（utils/write/images）。
  * 全部状态在客户端，无后端。
  */
-import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
@@ -87,6 +86,7 @@ import {
 	urlFileNameBase,
 } from "@/utils/write/images";
 import { applyIndentGuidesToMarkedHtml } from "@/utils/write/indent-guides";
+import { renderMarkedWithLineAnchors } from "@/utils/write/line-anchors";
 import { expandLeadingTabs, hoistCodeLanguages } from "@/utils/write/preview";
 import { createScrollSync } from "@/utils/write/scroll-sync";
 import { persistToken } from "@/utils/write/session";
@@ -95,7 +95,6 @@ import {
 	timestampPrefix,
 	todayDateString,
 } from "@/utils/write/slug";
-import { stampSourceLines } from "@/utils/write/source-lines";
 import ConfigDialog from "./ConfigDialog.svelte";
 import DateField from "./DateField.svelte";
 import ImageNameDialog from "./ImageNameDialog.svelte";
@@ -160,6 +159,8 @@ const sanitizeConfig: sanitizeHtml.Options = {
 	],
 	allowedAttributes: {
 		...sanitizeHtml.defaults.allowedAttributes,
+		// 批41 行号锚点：marked 渲染期注入到各块级元素，滚动同步据此对位
+		"*": ["data-line"],
 		a: ["href", "title", "target", "rel"],
 		img: ["src", "alt", "title", "width", "height", "loading"],
 		input: ["type", "checked", "disabled"],
@@ -304,22 +305,18 @@ const draftOnlyItems = $derived(
 const preview = $derived.by(() => {
 	if (editorLoading) return { html: "", error: "" };
 	try {
-		const html = marked.parse(expandLeadingTabs(body), {
-			async: false,
-			gfm: true,
-		});
+		const html = renderMarkedWithLineAnchors(expandLeadingTabs(body));
 		if (typeof html !== "string")
 			return { html: "", error: "预览返回异常结果" };
-		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再提语言徽章、
-		// 注缩进竖线锚点（hoist 同层，锚点带 --ig-n 自定义属性，sanitize 会剥 style，
-		// 所以必须在消毒之后注入——锚点在本站模板里是可信静态输出），
-		// 最后打源码行号锚点（data-line，滚动同步用）——必须在整条链之后：
-		// hoistCodeLanguages 会重包 <pre><code…>，链中打的属性活不到最后
+		// marked 渲染同时在块级元素上打 data-line 源码行锚点（批41：锚点粒度=块级，
+		// 列表项内部的代码块/段落也有锚点，滚动同步才不会在长列表里冻结）；再换站内图
+		// src、提语言徽章、注缩进竖线锚点（sanitize 会剥 style，锚点必须消毒之后注入；
+		// data-line 由 sanitizeConfig 的 "*" 通配放行）
 		const localized = localizePreviewImages(html, resolvePreviewImage);
 		const hoisted = hoistCodeLanguages(localized);
 		const sanitized = sanitizeHtml(hoisted, sanitizeConfig);
 		return {
-			html: stampSourceLines(applyIndentGuidesToMarkedHtml(sanitized), body),
+			html: applyIndentGuidesToMarkedHtml(sanitized),
 			error: "",
 		};
 	} catch (error) {
@@ -561,13 +558,13 @@ $effect(() => {
 });
 
 // P2→批37：双窗态行号锚点滚动同步（CM 视图 ↔ 预览卡）；非 split 布局自动停用。
-// 依赖 body：正文重渲 → data-line 锚点重排，重建句柄即锚点缓存一并失效
+// 批41：句柄不再随 body 逐键重建（过去 void body 强依赖导致每键 destroy+create）；
+// 预览重渲/图片加载导致的锚点位置变化由 scroll-sync 内部的 Resize/Mutation 监听失效
 $effect(() => {
 	if (!cmReady) return;
 	const edView = cmHandle?.view;
 	const pv = previewCard;
 	if (!edView || !pv) return;
-	void body;
 	const sync = createScrollSync(edView, pv, {
 		enabled: () => layout === "split",
 	});
