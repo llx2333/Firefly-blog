@@ -87,7 +87,7 @@ import {
 	urlFileNameBase,
 } from "@/utils/write/images";
 import { applyIndentGuidesToMarkedHtml } from "@/utils/write/indent-guides";
-import { hoistCodeLanguages } from "@/utils/write/preview";
+import { expandLeadingTabs, hoistCodeLanguages } from "@/utils/write/preview";
 import { createScrollSync } from "@/utils/write/scroll-sync";
 import { persistToken } from "@/utils/write/session";
 import {
@@ -304,7 +304,10 @@ const draftOnlyItems = $derived(
 const preview = $derived.by(() => {
 	if (editorLoading) return { html: "", error: "" };
 	try {
-		const html = marked.parse(body, { async: false, gfm: true });
+		const html = marked.parse(expandLeadingTabs(body), {
+			async: false,
+			gfm: true,
+		});
 		if (typeof html !== "string")
 			return { html: "", error: "预览返回异常结果" };
 		// 先把站内图 src 换成本地可显示地址（待上传 blob / 草稿分支 blob），再提语言徽章、

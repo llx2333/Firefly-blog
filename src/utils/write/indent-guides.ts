@@ -200,10 +200,14 @@ export function applyIndentGuidesToMarkedHtml(html: string): string {
  * tab 已在构建期展开，此规则无效果。
  */
 export const INDENT_GUIDES_CSS = `
-.${INDENT_GUIDE_CLASS} {
+	.${INDENT_GUIDE_CLASS} {
 	display: inline-block;
 	width: 0;
-	height: 1lh;
+	/* height 必须 0：inline-block 若有 1lh 高，会按自身行盒参与首行行高竞争——
+	   EC 侧锚点字体继承自行容器、与代码文本 span 的字号/行高可能不一致，实测
+	   把首行撑高 ~25px，其后所有参考线整体下移错位。零高度盒永不参与行高竞争，
+	   ::before 仍从行盒顶定位（vertical-align: top 保证贴首行行首）。 */
+	height: 0;
 	vertical-align: top;
 	position: relative;
 	pointer-events: none;
