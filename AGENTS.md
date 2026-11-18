@@ -37,3 +37,8 @@ Use Conventional Commits, matching the current history: `feat: ...`, `fix: ...`,
 ## Security & Configuration Tips
 
 Do not commit secrets, tokens, or service keys in config files. Keep deployment-specific settings in the target platform environment, and review generated files such as `dist`, `src/constants/lqips.json`, and `src/constants/icons.ts` before committing them.
+
+## Gotchas (learned the hard way)
+
+- CI has a "Code quality" job running Biome over `src` and `scripts`; `pnpm check` does NOT cover it. Run `pnpm exec biome check ./src ./scripts` before pushing, or the push fails CI even with a clean `astro check`.
+- The Astro content layer caches rendered HTML in `.astro/data-store.json` keyed by content digest. Editing markdown-pipeline plugin code (e.g. `src/plugins/*.mjs`) does not re-render unchanged posts in dev, even after a server restart; touch the post file (any digest change, e.g. its description) to force re-render.
