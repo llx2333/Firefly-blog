@@ -10,7 +10,7 @@
 -- ff.opt.layout = "edit"       -- 编辑器布局："edit" | "split" | "preview"
 
 -- ff.map 键位映射（mode 限 "normal" / "insert"）
--- ff.map("insert", "<M-j>", "<Esc>")      -- 右侧为按键记法：转发该按键（此处退出插入模式）
+ff.map("insert", "<M-j>", "<Esc>")      -- 右侧为按键记法：转发该按键（此处退出插入模式）
 -- ff.map("normal", "<C-s>", "save")    -- 右侧为命令名：save = 保存当前文章
 -- ff.map("normal", "gq", function()    -- 右侧也可以是 lua 函数
 --   print("hello from firefly lua")
