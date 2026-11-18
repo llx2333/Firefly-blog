@@ -109,6 +109,8 @@ export interface CmEditorHandle {
 	focus(): void;
 	/** 编辑侧内部滚动容器（scroll-sync 的源端） */
 	scroller: HTMLElement;
+	/** CM6 视图本体（scroll-sync 行号锚点：读顶部可见行 / 按行定位） */
+	get view(): CMEditorView;
 	destroy(): void;
 }
 
@@ -532,6 +534,9 @@ export async function createMarkdownEditor(
 		},
 		get scroller(): HTMLElement {
 			return view.scrollDOM;
+		},
+		get view(): CMEditorView {
+			return view;
 		},
 		destroy() {
 			if (destroyed) return;
