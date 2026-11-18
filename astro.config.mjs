@@ -386,7 +386,16 @@ export default defineConfig({
 		plugins: [tailwindcss()],
 		server: {
 			watch: {
-				ignored: ["**/package/**", "**/Firefly-docs/**"],
+				ignored: [
+					"**/package/**",
+					"**/Firefly-docs/**",
+					// dev watcher 曾收到盘根路径（E:/）的 add：readdirp 扫盘根时对 Windows
+					// 系统文件（E:\DumpStack.log.tmp）lstat EINVAL，chokidar 的 error 事件
+					// 无监听 → uncaught exception 杀进程（dev server 反复崩溃的根因）。
+					// anymatch 混合数组：函数兜底拦掉一切盘根 add，项目内 watch 不受影响。
+					(watchedPath) =>
+						/^[a-z]:[/\\]?$/i.test(String(watchedPath).replace(/\\/g, "/")),
+				],
 			},
 		},
 		resolve: {
