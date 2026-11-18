@@ -89,13 +89,13 @@ import {
 import { applyIndentGuidesToMarkedHtml } from "@/utils/write/indent-guides";
 import { hoistCodeLanguages } from "@/utils/write/preview";
 import { createScrollSync } from "@/utils/write/scroll-sync";
-import { stampSourceLines } from "@/utils/write/source-lines";
 import { persistToken } from "@/utils/write/session";
 import {
 	fileNameToSlug,
 	timestampPrefix,
 	todayDateString,
 } from "@/utils/write/slug";
+import { stampSourceLines } from "@/utils/write/source-lines";
 import ConfigDialog from "./ConfigDialog.svelte";
 import DateField from "./DateField.svelte";
 import ImageNameDialog from "./ImageNameDialog.svelte";

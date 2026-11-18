@@ -91,9 +91,12 @@ export function createScrollSync(
 		const cRect = preview.getBoundingClientRect();
 		const cTop = cRect.top + preview.clientTop;
 		const padTop =
-			preview.clientTop + (parseFloat(getComputedStyle(preview).paddingTop) || 0);
+			preview.clientTop +
+			(Number.parseFloat(getComputedStyle(preview).paddingTop) || 0);
 		const scroll = preview.scrollTop;
-		for (const el of preview.querySelectorAll<HTMLElement>(`[${SOURCE_LINE_ATTR}]`)) {
+		for (const el of preview.querySelectorAll<HTMLElement>(
+			`[${SOURCE_LINE_ATTR}]`,
+		)) {
 			const line = Number(el.getAttribute(SOURCE_LINE_ATTR));
 			if (!Number.isFinite(line) || line < 1) continue;
 			list.push({
@@ -121,7 +124,9 @@ export function createScrollSync(
 		const doc = view.state.doc;
 		const li = Math.min(doc.lines, Math.max(1, Math.floor(f)));
 		const block = view.lineBlockAt(doc.line(li).from);
-		return block.top + clamp01(f - li) * block.height + view.documentPadding.top;
+		return (
+			block.top + clamp01(f - li) * block.height + view.documentPadding.top
+		);
 	}
 
 	/** 浮点行号 → 预览目标 scrollTop：落点所在锚点段内按行距比例插值 */
@@ -201,7 +206,11 @@ export function createScrollSync(
 		setSlot: (v: number) => void,
 	) {
 		return () => {
-			if (pendingEcho && pendingEcho.el === el && el.scrollTop === pendingEcho.value) {
+			if (
+				pendingEcho &&
+				pendingEcho.el === el &&
+				el.scrollTop === pendingEcho.value
+			) {
 				// 回声：位置与我们写入的值一致，吞掉并解锁
 				clearEcho();
 				return;
