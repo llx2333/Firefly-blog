@@ -1,5 +1,24 @@
 @reference "tailwindcss";
 
+/* Both editor panes use the same monospace metrics, independent of prose. */
+.write-cm,
+.custom-md .code-block-wrap pre {
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace
+  );
+  font-size: 14px;
+  line-height: 1.75rem;
+  tab-size: 4;
+}
+
 .custom-md {
   overflow-wrap: break-word;
 
@@ -96,13 +115,7 @@
     }
   }
 
-  /*
-   * 块级代码重置：上面的 code 是行内代码样式（inline 元素），背景落到 pre>code
-   * 会按行分片成逐行色块——暗色呈每行一个绿圆角块（缩进参考线像拼凑），亮色呈
-   * 浅绿底叠浅字（低对比的「白底白字」）。这里把 pre 内 code 的背景/内边距/圆角
-   * 还原、字色继承 pre 的主题前景（预览链 pre 为 EC 暗底浅字，恒定可读）；
-   * 行内代码 chips 不命中 pre，不受影响；读者侧 EC 的 code display/背景不受影响。
-   */
+  /* Block code must not inherit inline-code chips. */
   & pre code {
     background-color: transparent;
     padding: 0;
@@ -125,15 +138,11 @@
     @apply my-4;
   }
 
-  /*
-   * 编辑器预览的代码块语言徽章：读者侧由 expressive-code-language-badge 构建
-   * 期渲染（[data-language]::before），预览侧（marked 纯输出）由
-   * hoistCodeLanguages 把语言提到 .code-block-wrap[data-language]，这里用与
-   * expressive-code.css 徽章同款主题变量绘制，观感一致。徽章只认
-   * .code-block-wrap，行内 code 不受影响；无语言（``` 裸围栏）的块不产生属性。
-   */
+  /* Editor-only code rows; no reader-side highlighter changes. */
   .code-block-wrap {
     position: relative;
+    min-width: 0;
+    margin: 1em 0;
 
     &[data-language]::before {
       content: attr(data-language);
@@ -147,9 +156,34 @@
       opacity: 0.85;
     }
 
+    &[data-language] pre {
+      padding-top: 2.5rem;
+    }
+
     pre {
-      /* 给右上角徽章留出空间，避免长代码行顶到徽章下面 */
-      @apply relative;
+      position: relative;
+      max-width: 100%;
+      margin: 0;
+      padding: 1rem;
+      overflow-x: auto;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+
+    pre code {
+      display: block;
+      width: max-content;
+      min-width: 100%;
+      font: inherit;
+      white-space: pre;
+    }
+
+    .preview-code-line {
+      display: block;
+      min-height: 1.75rem;
+      font: inherit;
+      white-space: pre;
     }
   }
 

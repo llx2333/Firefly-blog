@@ -10,7 +10,6 @@
  * 远端 404（本地预览文章尚未提交过）→ 以当前标题起草；该路径若有云端草稿则
  * 直接载入草稿内容，发布即新建。
  */
-import sanitizeHtml from "sanitize-html";
 import { onDestroy, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import { registerDirtyGuard } from "@/utils/dirty-guard";
@@ -75,7 +74,6 @@ import {
 	imageFilesFromClipboard,
 	imagePublicDirFor,
 	imageUrlToRepoPath,
-	localizePreviewImages,
 	mimeFromName,
 	type PendingImage,
 	postImageRefs,
@@ -84,9 +82,7 @@ import {
 	sanitizeImageName,
 	urlFileNameBase,
 } from "@/utils/write/images";
-import { applyIndentGuidesToMarkedHtml } from "@/utils/write/indent-guides";
-import { renderMarkedWithLineAnchors } from "@/utils/write/line-anchors";
-import { expandLeadingTabs, hoistCodeLanguages } from "@/utils/write/preview";
+import type { renderPreview } from "@/utils/write/preview";
 import { createScrollSync } from "@/utils/write/scroll-sync";
 import { persistToken } from "@/utils/write/session";
 import { timestampPrefix, todayDateString } from "@/utils/write/slug";
@@ -105,35 +101,6 @@ const inputClass =
 	"w-full px-3 py-2 text-sm bg-transparent border border-black/10 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-(--primary) focus:border-(--primary) hover:border-black/20 dark:hover:border-white/20 text-75 write-input transition-colors outline-hidden";
 
 const labelClass = "block text-xs font-medium text-50 mb-1";
-
-const sanitizeConfig: sanitizeHtml.Options = {
-	allowedTags: [
-		...sanitizeHtml.defaults.allowedTags,
-		"img",
-		"input",
-		"del",
-		"ins",
-		"mark",
-		"figure",
-		"figcaption",
-		"kbd",
-		"sup",
-		"sub",
-	],
-	allowedAttributes: {
-		...sanitizeHtml.defaults.allowedAttributes,
-		// 批41 行号锚点：marked 渲染期注入到各块级元素，滚动同步据此对位
-		"*": ["data-line"],
-		a: ["href", "title", "target", "rel"],
-		img: ["src", "alt", "title", "width", "height", "loading"],
-		input: ["type", "checked", "disabled"],
-		code: ["class"],
-		span: ["class"],
-		pre: ["class"],
-		div: ["class", "data-language"],
-	},
-	allowedSchemes: ["http", "https", "mailto", "blob"],
-};
 
 // --- 全局状态 ---
 let mode = $state<Mode>("idle");
@@ -161,6 +128,8 @@ let reloginHint = $state("");
 // --- 编辑器 ---
 let editorReady = $state(false);
 let editorLoading = $state(false);
+let previewRenderer = $state<typeof renderPreview | null>(null);
+let previewLoadError = $state("");
 let editorError = $state("");
 let conflictPending = $state(false);
 let fm = $state<PostFrontmatter>(emptyFrontmatter());
@@ -251,23 +220,32 @@ const dirty = $derived(
 		serializePostFile(fm, extras, body) !== savedSnapshot,
 );
 
+$effect(() => {
+	if (!editorReady || mode !== "editing") return;
+	if (untrack(() => previewRenderer)) return;
+	let disposed = false;
+	previewLoadError = "";
+	void import("@/utils/write/preview")
+		.then(({ renderPreview }) => {
+			if (!disposed) previewRenderer = renderPreview;
+		})
+		.catch((error: unknown) => {
+			if (!disposed) {
+				previewLoadError =
+					error instanceof Error ? error.message : String(error);
+			}
+		});
+	return () => {
+		disposed = true;
+	};
+});
+
 const preview = $derived.by(() => {
-	if (!editorReady) return { html: "", error: "" };
+	if (!editorReady || mode !== "editing") return { html: "", error: "" };
+	const render = previewRenderer;
+	if (!render) return { html: "", error: previewLoadError };
 	try {
-		const html = renderMarkedWithLineAnchors(expandLeadingTabs(body));
-		if (typeof html !== "string")
-			return { html: "", error: "预览返回异常结果" };
-		// marked 渲染同时在块级元素上打 data-line 源码行锚点（批41：锚点粒度=块级，
-		// 列表项内部的代码块/段落也有锚点，滚动同步才不会在长列表里冻结）；
-		// 再换站内图 src、提语言徽章、注缩进竖线锚点（sanitize 会剥 style，锚点必须
-		// 消毒之后注入；data-line 由 sanitizeConfig 的 "*" 通配放行）
-		const localized = localizePreviewImages(html, resolvePreviewImage);
-		const hoisted = hoistCodeLanguages(localized);
-		const sanitized = sanitizeHtml(hoisted, sanitizeConfig);
-		return {
-			html: applyIndentGuidesToMarkedHtml(sanitized),
-			error: "",
-		};
+		return { html: render(body, resolvePreviewImage), error: "" };
 	} catch (error) {
 		return {
 			html: "",
@@ -1683,7 +1661,7 @@ async function insertAtCursor(text: string) {
 						: "md:grid-cols-1"} gap-4 items-start"
 				>
 					<div
-						class="rounded-(--radius-large) bg-black/[.015] dark:bg-white/[.02] border border-black/5 dark:border-white/10 px-4 py-4 w-full {mobileTab ===
+						class="rounded-(--radius-large) bg-black/[.015] dark:bg-white/[.02] border border-black/5 dark:border-white/10 px-4 h-[80vh] w-full {mobileTab ===
 						"edit"
 							? ""
 							: "hidden"} {layout === "preview"
@@ -1693,22 +1671,24 @@ async function insertAtCursor(text: string) {
 						<!-- CM6 编辑器（P5 缩进竖线 / P6 续行 / P7 vim），宿主只管挂载 -->
 						<div
 							bind:this={cmHost}
-							class="write-cm font-mono text-sm leading-7 text-75"
+							class="write-cm h-full text-75"
 						></div>
 					</div>
 					<div
 						bind:this={previewCard}
-						class="rounded-(--radius-large) bg-black/[.015] dark:bg-white/[.02] border border-black/5 dark:border-white/10 px-6 md:px-9 pt-6 pb-4 w-full {mobileTab ===
+						class="rounded-(--radius-large) bg-black/[.015] dark:bg-white/[.02] border border-black/5 dark:border-white/10 px-6 md:px-9 pt-6 pb-4 h-[80vh] overflow-y-auto custom-scrollbar w-full {mobileTab ===
 						"preview"
 							? ""
 							: "hidden"} {layout === "edit"
 							? "md:hidden!"
-							: "md:block!"} {layout === "split"
-							? "md:max-h-[80vh] md:overflow-y-auto custom-scrollbar"
-							: "md:max-h-none md:overflow-visible"}"
+							: "md:block!"} {layout === "preview"
+							? "md:h-auto md:overflow-visible"
+							: ""}"
 					>
 						{#if preview.error}
 							<p class="text-sm text-(--primary)">预览渲染出错：{preview.error}</p>
+						{:else if !previewRenderer}
+							<p class="text-sm text-50" aria-busy="true">正在加载预览……</p>
 						{:else}
 							<!-- 站点同款排版（markdown 样式随主题全局加载，文章页可用） -->
 							<div class="prose dark:prose-invert prose-base max-w-none! custom-md">

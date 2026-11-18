@@ -85,11 +85,14 @@ body.wallpaper-transparent .expressive-code {
 
 body.wallpaper-transparent .expressive-code .frame pre,
 body.wallpaper-transparent .expressive-code .frame code,
-body.wallpaper-transparent .expressive-code .frame .code,
 body.wallpaper-transparent .expressive-code .frame .ec-code,
 body.wallpaper-transparent .expressive-code .frame .ec-code__inner {
   background-color: transparent !important;
   background: transparent !important;
+}
+
+body.wallpaper-transparent .expressive-code .frame .code {
+  background-color: transparent !important;
 }
 
 body.wallpaper-transparent .expressive-code .frame {

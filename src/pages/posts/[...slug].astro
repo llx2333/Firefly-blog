@@ -228,9 +228,6 @@ const licenseHref = entry.data.licenseName
   <!-- KaTeX 按需加载 - 仅在文章页面 -->
   <KatexManager slot="head" />
 
-  <!-- 代码块缩进竖线样式（批38）：PostEditor 预览链会插 .ec-indent-guides 锚点，
-       此前本页漏注入样式导致编辑文章页参考线不显示；与 /write、EC 插件共用
-       indent-guides.ts 单源。 -->
   <style is:global set:html={INDENT_GUIDES_CSS} />
 
   <!-- og:article 结构化元数据 -->

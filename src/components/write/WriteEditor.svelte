@@ -7,7 +7,6 @@
  * 手改路径 = 重命名、删掉引用行 = 删图，保存时统一裁决（utils/write/images）。
  * 全部状态在客户端，无后端。
  */
-import sanitizeHtml from "sanitize-html";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import { registerDirtyGuard } from "@/utils/dirty-guard";
@@ -76,7 +75,6 @@ import {
 	imageFilesFromClipboard,
 	imagePublicDirFor,
 	imageUrlToRepoPath,
-	localizePreviewImages,
 	mimeFromName,
 	type PendingImage,
 	postImageRefs,
@@ -85,9 +83,7 @@ import {
 	sanitizeImageName,
 	urlFileNameBase,
 } from "@/utils/write/images";
-import { applyIndentGuidesToMarkedHtml } from "@/utils/write/indent-guides";
-import { renderMarkedWithLineAnchors } from "@/utils/write/line-anchors";
-import { expandLeadingTabs, hoistCodeLanguages } from "@/utils/write/preview";
+import type { renderPreview } from "@/utils/write/preview";
 import { createScrollSync } from "@/utils/write/scroll-sync";
 import { persistToken } from "@/utils/write/session";
 import {
@@ -143,35 +139,6 @@ const inputClass =
 
 const labelClass = "block text-xs font-medium text-50 mb-1";
 
-const sanitizeConfig: sanitizeHtml.Options = {
-	allowedTags: [
-		...sanitizeHtml.defaults.allowedTags,
-		"img",
-		"input",
-		"del",
-		"ins",
-		"mark",
-		"figure",
-		"figcaption",
-		"kbd",
-		"sup",
-		"sub",
-	],
-	allowedAttributes: {
-		...sanitizeHtml.defaults.allowedAttributes,
-		// 批41 行号锚点：marked 渲染期注入到各块级元素，滚动同步据此对位
-		"*": ["data-line"],
-		a: ["href", "title", "target", "rel"],
-		img: ["src", "alt", "title", "width", "height", "loading"],
-		input: ["type", "checked", "disabled"],
-		code: ["class"],
-		span: ["class"],
-		pre: ["class"],
-		div: ["class", "data-language"],
-	},
-	allowedSchemes: ["http", "https", "mailto", "blob"],
-};
-
 // --- 全局状态 ---
 let view = $state<View>("login");
 let token = $state("");
@@ -212,6 +179,9 @@ let layout = $state<EditorLayout>(readLayoutPref());
 // P7：vim 模式开关（默认关），偏好存 ff.editor.vim
 let vimOn = $state(readVimPref());
 let editorLoading = $state(false);
+const editorReady = $derived(view === "editor" && !editorLoading);
+let previewRenderer = $state<typeof renderPreview | null>(null);
+let previewLoadError = $state("");
 let editorError = $state("");
 let conflictPending = $state(false);
 let saving = $state(false);
@@ -302,23 +272,32 @@ const draftOnlyItems = $derived(
 		.sort((a, b) => b.name.localeCompare(a.name)),
 );
 
+$effect(() => {
+	if (!editorReady) return;
+	if (untrack(() => previewRenderer)) return;
+	let disposed = false;
+	previewLoadError = "";
+	void import("@/utils/write/preview")
+		.then(({ renderPreview }) => {
+			if (!disposed) previewRenderer = renderPreview;
+		})
+		.catch((error: unknown) => {
+			if (!disposed) {
+				previewLoadError =
+					error instanceof Error ? error.message : String(error);
+			}
+		});
+	return () => {
+		disposed = true;
+	};
+});
+
 const preview = $derived.by(() => {
-	if (editorLoading) return { html: "", error: "" };
+	if (!editorReady) return { html: "", error: "" };
+	const render = previewRenderer;
+	if (!render) return { html: "", error: previewLoadError };
 	try {
-		const html = renderMarkedWithLineAnchors(expandLeadingTabs(body));
-		if (typeof html !== "string")
-			return { html: "", error: "预览返回异常结果" };
-		// marked 渲染同时在块级元素上打 data-line 源码行锚点（批41：锚点粒度=块级，
-		// 列表项内部的代码块/段落也有锚点，滚动同步才不会在长列表里冻结）；再换站内图
-		// src、提语言徽章、注缩进竖线锚点（sanitize 会剥 style，锚点必须消毒之后注入；
-		// data-line 由 sanitizeConfig 的 "*" 通配放行）
-		const localized = localizePreviewImages(html, resolvePreviewImage);
-		const hoisted = hoistCodeLanguages(localized);
-		const sanitized = sanitizeHtml(hoisted, sanitizeConfig);
-		return {
-			html: applyIndentGuidesToMarkedHtml(sanitized),
-			error: "",
-		};
+		return { html: render(body, resolvePreviewImage), error: "" };
 	} catch (error) {
 		return {
 			html: "",
@@ -2095,7 +2074,7 @@ async function insertAtCursor(text: string) {
 						: "md:grid-cols-1"} gap-4 items-start"
 				>
 					<div
-						class="card-base px-4 py-4 w-full {mobileTab === "edit" ? "" : "hidden"} {layout ===
+						class="card-base px-4 h-[80vh] w-full {mobileTab === "edit" ? "" : "hidden"} {layout ===
 						"preview"
 							? "md:hidden!"
 							: "md:block!"}"
@@ -2103,22 +2082,24 @@ async function insertAtCursor(text: string) {
 						<!-- CM6 编辑器（P5 缩进竖线 / P6 续行 / P7 vim），宿主只管挂载 -->
 						<div
 							bind:this={cmHost}
-							class="write-cm font-mono text-sm leading-7 text-75"
+							class="write-cm h-full text-75"
 						></div>
 					</div>
 					<div
 						bind:this={previewCard}
-						class="card-base px-6 md:px-9 pt-6 pb-4 w-full {mobileTab ===
+						class="card-base px-6 md:px-9 pt-6 pb-4 h-[80vh] overflow-y-auto custom-scrollbar w-full {mobileTab ===
 						"preview"
 							? ""
 							: "hidden"} {layout === "edit"
 							? "md:hidden!"
-							: "md:block!"} {layout === "split"
-							? "md:max-h-[80vh] md:overflow-y-auto custom-scrollbar"
-							: "md:max-h-none md:overflow-visible"}"
+							: "md:block!"} {layout === "preview"
+							? "md:h-auto md:overflow-visible"
+							: ""}"
 					>
 						{#if preview.error}
 							<p class="text-sm text-(--primary)">预览渲染出错：{preview.error}</p>
+						{:else if !previewRenderer}
+							<p class="text-sm text-50" aria-busy="true">正在加载预览……</p>
 						{:else}
 							<!-- 站点同款排版（markdown.css / markdown-extend.styl 由 write.astro 引入） -->
 							<div class="prose dark:prose-invert prose-base max-w-none! custom-md">

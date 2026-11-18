@@ -1,27 +1,9 @@
-/**
- * CM6 编辑器统一装配（WriteEditor / PostEditor 共用，组件只绑定不装配）。
- *
- * 装配内容（批30 P5/P6/P7 + 批31 lua 配置）：
- * - markdown 语言（lang-markdown 内置 markdownKeymap：Enter 自动续行——列表补
- *   `- `、缩进行保持缩进、普通段落不加重缩进、围栏代码块续行）；
- * - indentation-markers：VSCode 式缩进竖线（颜色随站点明暗，见 write-surface.css
- *   的 --indent-marker-* 覆写）；lua 配置 indent_guides=false 可整体关闭；
- * - history + historyKeymap：Ctrl+Z / Ctrl+Y 撤销重做（替代原 textarea 的浏览器原生）；
- * - vim 扩展经 Compartment 热开关（ff.editor.vim，默认关；@replit/codemirror-vim
- *   需 drawSelection 渲染可视模式选区）；
- * - lua 配置（editor-config.ts）经 handle.applyLua 热应用：
- *   tab_size（Tab→空格 + 缩进单位）、wrap（自动换行开关）、indent_guides、
- *   ff.map 键位（单键直绑 + 多键序列缓冲；vim 开启时 normal 映射走 vim API）。
- *
- * SSR 纪律：全部 CM 运行时依赖走动态 import，只在客户端（onMount 后）执行——
- * client:load 岛屿在 SSR/构建期也会跑模块顶层，CM6 在 Node 下缺 DOM 会炸。
- * svelte-codemirror-editor 不采用：需要自定义 vim Compartment / scroller 暴露 /
- * 视觉对齐旧 textarea，直装 EditorView 控制力更完整（已 pnpm remove 该包）。
- */
+/** Shared CM6 assembly; runtime extensions are loaded only on the client. */
 import type { Extension } from "@codemirror/state";
 import type { EditorView as CMEditorView, KeyBinding } from "@codemirror/view";
 import type { CodeMirrorV } from "@replit/codemirror-vim";
 import type { LuaMapping, ParsedKey } from "./editor-config";
+import { INDENT_GUIDE_TAB_SIZE } from "./indent-guides";
 
 export type EditorLayout = "edit" | "split" | "preview";
 
@@ -139,16 +121,18 @@ export async function createMarkdownEditor(
 ): Promise<CmEditorHandle> {
 	const [
 		{ EditorView, placeholder, drawSelection, keymap },
-		{ Compartment, EditorState, Prec },
+		{ Compartment, EditorState, Prec, countColumn },
 		{ defaultKeymap, history, historyKeymap },
 		{ markdown },
-		{ indentationMarkers },
+		{ cmIndentGuides },
+		{ indentUnit },
 	] = await Promise.all([
 		import("@codemirror/view"),
 		import("@codemirror/state"),
 		import("@codemirror/commands"),
 		import("@codemirror/lang-markdown"),
-		import("@replit/codemirror-indentation-markers"),
+		import("./cm-indent-guides"),
+		loadLanguage(),
 	]);
 	let vimModule: typeof import("@replit/codemirror-vim") | null = null;
 	if (options.vimEnabled) {
@@ -167,7 +151,7 @@ export async function createMarkdownEditor(
 	let vimActive = options.vimEnabled;
 	// 最近一次 lua 配置（setVim 切换后按新模式重排键位）
 	let lastLuaSpec: CmLuaSpec | null = null;
-	let lastTabSize: number | null = null;
+	let lastTabSize = INDENT_GUIDE_TAB_SIZE;
 
 	// ---- lua 键位执行 ----
 
@@ -236,7 +220,10 @@ export async function createMarkdownEditor(
 	function insertSpacesToTabStop(view: CMEditorView, size: number): boolean {
 		const sel = view.state.selection.main;
 		const line = view.state.doc.lineAt(sel.head);
-		const col = sel.head - line.from;
+		const col = countColumn(
+			view.state.doc.sliceString(line.from, sel.head),
+			size,
+		);
 		const spaces = " ".repeat(size - (col % size));
 		view.dispatch({
 			changes: { from: sel.from, to: sel.to, insert: spaces },
@@ -365,15 +352,15 @@ export async function createMarkdownEditor(
 		state: EditorState.create({
 			doc: options.value,
 			extensions: [
-				// P6：markdown 语言自带续行 keymap（Enter → insertNewlineContinueMarkup）
 				markdown(),
-				// 自动换行走 compartment（lua wrap=false 可关；默认开）
 				wrapCompartment.of([EditorView.lineWrapping]),
-				// P5：VSCode 式缩进竖线（markerType 默认 fullScope，整段完整竖线）
-				indentCompartment.of([indentationMarkers()]),
-				// lua 键位必须排在 defaultKeymap 之前（同优先级先声明先尝试）
-				luaKeymapCompartment.of([]),
-				tabCompartment.of([]),
+				indentCompartment.of(cmIndentGuides()),
+				// Lua bindings precede the default keymap.
+				luaKeymapCompartment.of(buildLuaKeyExt([])),
+				tabCompartment.of([
+					EditorState.tabSize.of(INDENT_GUIDE_TAB_SIZE),
+					indentUnit.of(" ".repeat(INDENT_GUIDE_TAB_SIZE)),
+				]),
 				// 撤销栈（V8：Ctrl+Z 正常，插图插入等 dispatch 同样入栈）
 				history(),
 				keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -401,11 +388,10 @@ export async function createMarkdownEditor(
 						options.onDocChange(update.state.doc.toString());
 					}
 				}),
-				// 视觉对齐旧 textarea：透明背景、font/行高继承宿主（font-mono text-sm leading-7）、
-				// 高度 80vh 由 CM scroller 内部滚动（P2 双窗内部滚动的前提）
+				// The host owns the height; CM owns the internal scrolling.
 				EditorView.theme({
 					"&": {
-						height: "80vh",
+						height: "100%",
 						backgroundColor: "transparent",
 						fontSize: "inherit",
 						color: "inherit",
@@ -417,7 +403,7 @@ export async function createMarkdownEditor(
 						lineHeight: "1.75rem",
 					},
 					".cm-content": {
-						padding: "4px 0",
+						padding: "1rem 0",
 						fontFamily: "inherit",
 						lineHeight: "inherit",
 						caretColor: "var(--primary, currentColor)",
@@ -425,10 +411,7 @@ export async function createMarkdownEditor(
 					".cm-line": { padding: "0 2px" },
 					".cm-cursor": { borderLeftColor: "var(--primary, currentColor)" },
 					".cm-placeholder": { color: "rgba(127, 127, 127, 0.6)" },
-					// 选区色统一走站点 ::selection 同款 token（明暗自适应，与全站一致）。
-					// CM 6.43 内置 focused 选区默认色（亮色态亮紫，暗色页面里即「白底白字」）
-					// 特异性更高，须按其结构（&.cm-focused > …）写更高特异性规则反压，
-					// 见批34 b34-diag3 实测。
+					// Match the site's selection token, including CM's focused rule.
 					".cm-selectionBackground": {
 						backgroundColor: "var(--selection-bg)",
 					},
@@ -481,25 +464,22 @@ export async function createMarkdownEditor(
 				Number.isInteger(spec.tabSize) &&
 				spec.tabSize >= 1
 					? spec.tabSize
-					: null;
+					: INDENT_GUIDE_TAB_SIZE;
 			lastTabSize = tabSize;
-			const { indentUnit } = await loadLanguage();
-			if (destroyed) return;
 			view.dispatch({
 				effects: [
-					tabCompartment.reconfigure(
-						tabSize
-							? [
-									EditorState.tabSize.of(tabSize),
-									indentUnit.of(" ".repeat(tabSize)),
-								]
-							: [],
-					),
+					tabCompartment.reconfigure([
+						EditorState.tabSize.of(tabSize),
+						indentUnit.of(" ".repeat(tabSize)),
+					]),
 					wrapCompartment.reconfigure(
 						spec.wrap === false ? [] : [EditorView.lineWrapping],
 					),
 					indentCompartment.reconfigure(
-						spec.indentGuides === false ? [] : [indentationMarkers()],
+						cmIndentGuides({
+							enabled: spec.indentGuides !== false,
+							wrap: spec.wrap !== false,
+						}),
 					),
 					luaKeymapCompartment.reconfigure(buildLuaKeyExt(mappings)),
 				],
@@ -518,14 +498,10 @@ export async function createMarkdownEditor(
 			view.dispatch({
 				effects: [
 					vimCompartment.reconfigure(enabled ? mod.vim() : []),
-					// 键位随模式重排：vim 态 normal 由 vim API 接管，CM 键位只留 insert
-					...(lastLuaSpec
-						? [
-								luaKeymapCompartment.reconfigure(
-									buildLuaKeyExt(lastLuaSpec.mappings ?? []),
-								),
-							]
-						: []),
+					// Rebuild Tab and Lua bindings for the new Vim mode.
+					luaKeymapCompartment.reconfigure(
+						buildLuaKeyExt(lastLuaSpec?.mappings ?? []),
+					),
 				],
 			});
 		},

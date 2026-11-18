@@ -9,25 +9,21 @@
 		'Courier New', var(--font-lxgw-wenkai-mono, 'LXGW WenKai Mono'), monospace;
 }
 
-/* ===== CM6 编辑器（批30 P5/P6/P7）=====
-   缩进竖线配色：@replit/codemirror-indentation-markers 默认色按「CM 编辑器主题
-   明暗」二选一，感知不到站点暗色类，所以在宿主上直接覆写 CSS 变量；
-   :root 前缀抬高特异性，压过运行时注入的 baseTheme（注入序在全局 CSS 之后）。 */
+/* Shared guide colors; CM backgrounds stay fixed when hanging padding changes. */
 :root .write-cm .cm-editor {
-	--indent-marker-bg-color: rgba(0, 0, 0, 0.14);
-	--indent-marker-active-bg-color: rgba(0, 0, 0, 0.26);
+	--ig-color: rgba(0, 0, 0, 0.14);
 }
 
-:root .dark .write-cm .cm-editor {
-	--indent-marker-bg-color: rgba(255, 255, 255, 0.17);
-	--indent-marker-active-bg-color: rgba(255, 255, 255, 0.32);
+:root.dark .write-cm .cm-editor {
+	--ig-color: rgba(255, 255, 255, 0.17);
 }
 
-/* CM 内部滚动区禁止自写 scrollbar-width（批31 修复，勿改回）：
-   Chrome 121+ 元素上标准 scrollbar-width 一旦生效就整体禁用 ::-webkit-scrollbar
-   自绘（custom-scrollbar.css 顶部注释记载的同款坑，2026-11 实测复现——批30 在此
-   写了 thin 导致编辑侧滚区退化成原生箭头条）。删掉后全站胶囊自绘自然接管此处，
-   Firefox 走 custom-scrollbar.css @-moz-document 的 thin 版本，同样无需重复声明。 */
+.write-cm .cm-line.cm-indent-guides {
+	--ig-offset: 2px;
+	background-origin: padding-box;
+}
+
+/* Scrollbar styling remains owned by the site's shared stylesheet. */
 
 /* ===== 模态弹窗表面 =====
    普通卡片走 --card-bg-transparent（默认 0.79），壁纸会透过弹窗，提示文字发糊；
