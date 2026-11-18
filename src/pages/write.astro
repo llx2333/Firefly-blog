@@ -5,10 +5,12 @@
  * 与 search.astro 的 AdvancedSearch 同款做法）。排版依赖（markdown.css /
  * markdown-extend.styl）在这里 frontmatter 引入，Astro 会打进页面 CSS。
  * 批31：预览侧缩进竖线样式与文章页 EC 插件同源（utils/write/indent-guides.ts
- * 导出的 INDENT_GUIDES_CSS 字符串，此处手工同步——mjs/ts 双环境无法互引）。
+ * 导出的 INDENT_GUIDES_CSS 字符串）；批38 起直接 import 注入，不再手工同步副本
+ * （mjs/ts 同仓本就可互引，手工副本已删）。
  */
 import WriteEditor from "@components/write/WriteEditor.svelte";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { INDENT_GUIDES_CSS } from "@/utils/write/indent-guides";
 import "@/styles/markdown.css";
 import "@/styles/markdown-extend.styl";
 
@@ -16,36 +18,7 @@ const title = "写作";
 const description = "在博客里直接书写与发布文章";
 ---
 
-<style is:global>
-	/* 预览侧缩进竖线：与 src/utils/write/indent-guides.ts INDENT_GUIDES_CSS 同源同步
-	 * （批34 容器级连续线重写）；文章页侧由 EC 插件 baseStyles 注入
-	 * （src/plugins/rehype-indent-guides.mjs）。 */
-	.ec-indent-guides {
-		display: inline-block;
-		width: 0;
-		height: 1lh;
-		vertical-align: top;
-		position: relative;
-		pointer-events: none;
-		--ig-color: rgba(0, 0, 0, 0.14);
-	}
-	html.dark .ec-indent-guides {
-		--ig-color: rgba(255, 255, 255, 0.17);
-	}
-	.ec-indent-guides::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		top: 0;
-		height: calc(var(--ig-lines, 1) * 1lh);
-		width: calc(var(--ig-n, 0) * 4ch);
-		background-image: repeating-linear-gradient(
-			to right,
-			transparent 0 calc(4ch - 1px),
-			var(--ig-color) calc(4ch - 1px) 4ch
-		);
-	}
-</style>
+<style is:global set:html={INDENT_GUIDES_CSS} />
 
 <MainGridLayout title={title} description={description}>
   <meta slot="head" name="robots" content="noindex" />
