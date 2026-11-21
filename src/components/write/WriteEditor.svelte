@@ -1605,80 +1605,62 @@ async function insertAtCursor(text: string) {
 </script>
 
 <div class="flex w-full flex-col gap-4" onpaste={(event) => void handlePaste(event)}>
-		<!-- 未发布块（批37 抽成公共片段）：草稿页与非草稿模式共用同一份结构。
-				inDraftsPage=true 时两小节始终显示（空则灰字），且 master 行带「有草稿」徽标 -->
+		<!-- 未发布块（批37 抽成公共片段，批38 扁平化）：master 草稿与暂存草稿合并为
+				单一扁平列表（用户口径：两者都是「没发布的暂存」，不再拆小节）。
+				「草稿」徽标仅普通列表页（inDraftsPage=false）渲染，草稿页组头已表明语义；
+				草稿页 master 行「有草稿」徽标（有暂存副本）保留；空态由外层条件兜住 -->
 		{#snippet unpublishedGroup(inDraftsPage: boolean)}
 			<div class="text-xs text-50 mb-1.5">
-				未发布 · 线上不可见（master 草稿 {masterDraftItems.length}，暂存草稿 {draftOnlyItems.length}）
+				未发布 · 线上不可见（{masterDraftItems.length + draftOnlyItems.length}）
 			</div>
-			{#if masterDraftItems.length > 0 || inDraftsPage}
-				<div class="text-xs text-50 mt-2 mb-1">
-					master 草稿 · 已在仓库，线上构建过滤 draft 字段
-				</div>
-				{#if masterDraftItems.length === 0}
-					{#if inDraftsPage}
-						<div class="py-3 text-center text-50 text-xs">无 master 草稿</div>
-					{/if}
-				{:else}
-					<div class="divide-y divide-black/5 dark:divide-white/10">
-						{#each masterDraftItems as item (item.path)}
-							<button
-								type="button"
-								class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
-								onclick={() => void openPost(item)}
+			<div class="divide-y divide-black/5 dark:divide-white/10">
+				{#each masterDraftItems as item (item.path)}
+					<button
+						type="button"
+						class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+						onclick={() => void openPost(item)}
+					>
+						<span class="w-full md:w-auto md:max-w-[18rem] truncate font-mono text-xs text-50">
+							{item.name}
+						</span>
+						<span class="flex-1 min-w-0 truncate text-sm text-90">
+							{item.title}
+						</span>
+						{#if inDraftsPage && draftIndex.has(item.path)}
+							<span
+								class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
 							>
-								<span class="w-full md:w-auto md:max-w-[18rem] truncate font-mono text-xs text-50">
-									{item.name}
-								</span>
-								<span class="flex-1 min-w-0 truncate text-sm text-90">
-									{item.title}
-								</span>
-								{#if inDraftsPage && draftIndex.has(item.path)}
-									<span
-										class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-									>
-										有草稿
-									</span>
-								{/if}
-								<span
-									class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-								>
-									草稿
-								</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
-			{/if}
-			{#if draftOnlyItems.length > 0 || inDraftsPage}
-				<div class="text-xs text-50 mt-2 mb-1">
-					暂存草稿 · 仅存于 {DRAFT_BRANCH} 分支
-				</div>
-				{#if draftOnlyItems.length === 0}
-					{#if inDraftsPage}
-						<div class="py-3 text-center text-50 text-xs">无暂存草稿</div>
-					{/if}
-				{:else}
-					<div class="divide-y divide-black/5 dark:divide-white/10">
-						{#each draftOnlyItems as draft (draft.path)}
-							<button
-								type="button"
-								class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
-								onclick={() => void openDraftOnly(draft.path)}
+								有草稿
+							</span>
+						{/if}
+						{#if !inDraftsPage}
+							<span
+								class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
 							>
-								<span class="flex-1 min-w-0 truncate text-sm text-90">
-									{draftTitles.get(draft.path) ?? draft.name}
-								</span>
-								<span
-									class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-								>
-									草稿
-								</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
-			{/if}
+								草稿
+							</span>
+						{/if}
+					</button>
+				{/each}
+				{#each draftOnlyItems as draft (draft.path)}
+					<button
+						type="button"
+						class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+						onclick={() => void openDraftOnly(draft.path)}
+					>
+						<span class="flex-1 min-w-0 truncate text-sm text-90">
+							{draftTitles.get(draft.path) ?? draft.name}
+						</span>
+						{#if !inDraftsPage}
+							<span
+								class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+							>
+								草稿
+							</span>
+						{/if}
+					</button>
+				{/each}
+			</div>
 		{/snippet}
 		{#if authChecking}
 		<div class="card-base px-6 md:px-9 py-10 rounded-(--radius-large) text-center text-50">
@@ -1804,7 +1786,8 @@ async function insertAtCursor(text: string) {
 					</button>
 				</div>
 			{:else if draftsMode}
-				<!-- 草稿页（批37）：只看「已发布 · 有暂存草稿」+「未发布」两块，不渲染全量列表 -->
+				<!-- 草稿页（批38）：已发布副本块与未发布块各自非空才渲染（不再渲染空分类占位），
+						两块全空收敛为单行「暂无草稿」（toast 仍由 focusDraftGroup 三空判定触发） -->
 				{#if !isLoggedIn}
 					<div class="py-8 text-center text-50 text-sm border-b border-black/5 dark:border-white/10">
 						登录后可见草稿
@@ -1812,20 +1795,18 @@ async function insertAtCursor(text: string) {
 					<div class="py-8 text-center text-50 text-sm">
 						登录后可见草稿
 					</div>
+				{:else if publishedWithDraftItems.length === 0 && masterDraftItems.length === 0 && draftOnlyItems.length === 0}
+					<div class="py-10 text-center text-50 text-sm">暂无草稿</div>
 				{:else}
-					<!-- 块一：已发布且有暂存草稿的文章（发布/丢弃后副本消失，自动离开本块） -->
-					<div id="published-drafts-block">
-						<div class="text-xs text-50 mb-1.5">
-							已发布 · 有暂存草稿（{publishedWithDraftItems.length}）
-						</div>
-						<div class="text-xs text-50 mb-1">
-							线上显示的是已发布版本，下面这些改动还没发布；点开可继续编辑或发布
-						</div>
-						{#if publishedWithDraftItems.length === 0}
-							<div class="py-4 text-center text-50 text-xs">
-								无——已发布且没草稿的文章不显示在草稿页
+					{#if publishedWithDraftItems.length > 0}
+						<!-- 块一：已发布且有暂存草稿的文章（发布/丢弃后副本消失，自动离开本块；空时整块隐藏） -->
+						<div id="published-drafts-block">
+							<div class="text-xs text-50 mb-1.5">
+								已发布 · 有暂存草稿（{publishedWithDraftItems.length}）
 							</div>
-						{:else}
+							<div class="text-xs text-50 mb-1">
+								线上显示的是已发布版本，下面这些改动还没发布；点开可继续编辑或发布
+							</div>
 							<div class="divide-y divide-black/5 dark:divide-white/10">
 								{#each publishedWithDraftItems as item (item.path)}
 									<button
@@ -1850,12 +1831,19 @@ async function insertAtCursor(text: string) {
 									</button>
 								{/each}
 							</div>
-						{/if}
-					</div>
-					<!-- 块二：未发布（master 草稿 + 暂存草稿），与全量列表共用片段 -->
-					<div id={DRAFT_GROUP_ID} class="mt-5 pt-4 border-t border-black/5 dark:border-white/10">
-						{@render unpublishedGroup(true)}
-					</div>
+						</div>
+					{/if}
+					{#if masterDraftItems.length > 0 || draftOnlyItems.length > 0}
+						<!-- 块二：未发布（master 草稿 + 暂存草稿），与全量列表共用片段；块一可见时保留分割线，否则去掉避免顶部孤线 -->
+						<div
+							id={DRAFT_GROUP_ID}
+							class={publishedWithDraftItems.length > 0
+								? "mt-5 pt-4 border-t border-black/5 dark:border-white/10"
+								: ""}
+						>
+							{@render unpublishedGroup(true)}
+						</div>
+					{/if}
 				{/if}
 			{:else if listItems.length === 0}
 				<!-- 空状态：当前仓库 0 篇属预期 -->
