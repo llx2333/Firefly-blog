@@ -1608,7 +1608,8 @@ async function insertAtCursor(text: string) {
 		<!-- 未发布块（批37 抽成公共片段，批38 扁平化）：master 草稿与暂存草稿合并为
 				单一扁平列表（用户口径：两者都是「没发布的暂存」，不再拆小节）。
 				「草稿」徽标仅普通列表页（inDraftsPage=false）渲染，草稿页组头已表明语义；
-				草稿页 master 行「有草稿」徽标（有暂存副本）保留；空态由外层条件兜住 -->
+				批39 R5：master 行「有草稿」徽标删除——都是草稿，暂存概念在草稿语境下
+				不再出现（组头未发布已表明语义）；空态由外层条件兜住 -->
 		{#snippet unpublishedGroup(inDraftsPage: boolean)}
 			<div class="text-xs text-50 mb-1.5">
 				未发布 · 线上不可见（{masterDraftItems.length + draftOnlyItems.length}）
@@ -1626,13 +1627,6 @@ async function insertAtCursor(text: string) {
 						<span class="flex-1 min-w-0 truncate text-sm text-90">
 							{item.title}
 						</span>
-						{#if inDraftsPage && draftIndex.has(item.path)}
-							<span
-								class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-							>
-								有草稿
-							</span>
-						{/if}
 						{#if !inDraftsPage}
 							<span
 								class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
@@ -1820,11 +1814,8 @@ async function insertAtCursor(text: string) {
 										<span class="flex-1 min-w-0 truncate text-sm text-90">
 											{item.title}
 										</span>
-										<span
-											class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-										>
-											有草稿
-										</span>
+										<!-- 批39 R5：行内「有草稿」徽标删除——块头「已发布 · 有暂存草稿（N）」
+												已表明语义，行内纯冗余 -->
 										<span class="shrink-0 text-xs text-50 tabular-nums">
 											{item.published || "—"}
 										</span>
@@ -1879,10 +1870,12 @@ async function insertAtCursor(text: string) {
 								{item.draft ? "草稿" : "已发布"}
 							</span>
 							{#if isLoggedIn && draftIndex.has(item.path)}
+								<!-- 批39 R5：「有草稿」→「有暂存」——该徽标只在全量列表页渲染，
+										表示已发布行在 write-drafts 分支有暂存副本，措辞按用户口径纠正 -->
 								<span
 									class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
 								>
-									有草稿
+									有暂存
 								</span>
 							{/if}
 							<span class="shrink-0 text-xs text-50 tabular-nums">
@@ -1998,21 +1991,25 @@ async function insertAtCursor(text: string) {
 				>
 					{deleting ? "删除中……" : "删除"}
 				</button>
-				<button
-					type="button"
-					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
-					onclick={() => void saveDraft()}
-					disabled={!isLoggedIn || savingDraft}
-					title={isLoggedIn
-						? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
-						: "登录后才能暂存"}
-				>
-					{savingDraft
-						? (imageUploadTotal > 0
-							? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
-							: "暂存中……")
-						: "暂存草稿"}
-				</button>
+				<!-- 批39 R5a：勾「草稿」后隐藏「暂存草稿」按钮——都是草稿（master 上 draft:true，
+						普通用户看不到），单独的暂存副本没有意义；主按钮「保存草稿」不变 -->
+				{#if !fm.draft}
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
+						onclick={() => void saveDraft()}
+						disabled={!isLoggedIn || savingDraft}
+						title={isLoggedIn
+							? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
+							: "登录后才能暂存"}
+					>
+						{savingDraft
+							? (imageUploadTotal > 0
+								? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
+								: "暂存中……")
+							: "暂存草稿"}
+					</button>
+				{/if}
 				<button
 					type="button"
 					class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"

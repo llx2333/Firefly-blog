@@ -1464,21 +1464,25 @@ async function insertAtCursor(text: string) {
 					>
 						插入图片
 					</button>
-					<button
-						type="button"
-						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
-						onclick={() => void saveDraft()}
-						disabled={!isLoggedIn || savingDraft}
-						title={isLoggedIn
-							? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
-							: "重新验证后才能暂存"}
-					>
-						{savingDraft
-							? (imageUploadTotal > 0
-								? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
-								: "暂存中……")
-							: "暂存草稿"}
-					</button>
+					<!-- 批39 R5a：勾「草稿」后隐藏「暂存草稿」按钮——与 WriteEditor 同款
+							（都是草稿，单独的暂存副本没有意义）；取消勾选按钮回归 -->
+					{#if !fm.draft}
+						<button
+							type="button"
+							class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs"
+							onclick={() => void saveDraft()}
+							disabled={!isLoggedIn || savingDraft}
+							title={isLoggedIn
+								? `暂存到 ${DRAFT_BRANCH} 分支，不影响线上`
+								: "重新验证后才能暂存"}
+						>
+							{savingDraft
+								? (imageUploadTotal > 0
+									? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
+									: "暂存中……")
+								: "暂存草稿"}
+						</button>
+					{/if}
 					<button
 						type="button"
 						class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"

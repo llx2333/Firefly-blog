@@ -480,6 +480,12 @@ function initialActive(categoryName: string): {
   // 防止 Swup 切页重跑脚本时重复注册监听器/hooks
   if (!window.__categoryBarInit) {
     window.__categoryBarInit = true;
+    // 批39 R3：编辑器岛内暂存/发布/删文等操作清缓存后广播失效事件，
+    // 胶囊即时重拉真数（缓存已清 → ensureDraftPill 走 countDraftOnlyPosts 重算），
+    // 不再等下一次页面跳转才刷新
+    document.addEventListener("ff:draft-count-invalidated", () => {
+      void ensureDraftPill();
+    });
     document.addEventListener("astro:page-load", () => {
       updateCategoryBar();
       initScrollFeatures();

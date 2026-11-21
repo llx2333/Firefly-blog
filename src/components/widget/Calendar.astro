@@ -49,17 +49,28 @@ const postUrlPrefix = url("/posts/");
 
 <WidgetLayout name={i18n(I18nKey.calendar)} showTitle={showTitle} id="calendar-widget" class={className} style={style}>
   <div class="calendar-container">
+    <!-- 批39 R2：头部 [<<][<] 标题 [>][>>][↺]——月箭头外侧各加一对年箭头，
+         回今日 ↺ 保留在右组最外（默认当前月隐藏，常态完全对称） -->
     <div class="flex justify-between items-center mb-2">
-        <button id="prev-month-btn" class="btn-plain rounded-lg w-8 h-8 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Previous Month">
-            <Icon name="fa7-solid:chevron-left" class="text-sm" />
-        </button>
-        <div id="current-month-display" class="text-lg font-bold text-neutral-900 dark:text-neutral-100 cursor-pointer hover:text-(--primary) transition-colors select-none"></div>
-        <div class="flex gap-2">
-            <button id="reset-month-btn" class="btn-plain rounded-lg w-8 h-8 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Back to Today">
-                <Icon name="fa7-solid:arrow-rotate-left" class="text-sm" />
+        <!-- 批39 布局微调：w-7/gap-1 保证 ↺ 显形时标题仍单行（246px 容器实测） -->
+        <div class="flex gap-1">
+            <button id="prev-year-btn" class="btn-plain rounded-lg w-7 h-7 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Previous Year">
+                <Icon name="fa7-solid:angles-left" class="text-sm" />
             </button>
-            <button id="next-month-btn" class="btn-plain rounded-lg w-8 h-8 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Next Month">
+            <button id="prev-month-btn" class="btn-plain rounded-lg w-7 h-7 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Previous Month">
+                <Icon name="fa7-solid:chevron-left" class="text-sm" />
+            </button>
+        </div>
+        <div id="current-month-display" class="text-lg font-bold text-neutral-900 dark:text-neutral-100 cursor-pointer hover:text-(--primary) transition-colors select-none whitespace-nowrap"></div>
+        <div class="flex gap-1">
+            <button id="next-month-btn" class="btn-plain rounded-lg w-7 h-7 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Next Month">
                 <Icon name="fa7-solid:chevron-right" class="text-sm" />
+            </button>
+            <button id="next-year-btn" class="btn-plain rounded-lg w-7 h-7 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Next Year">
+                <Icon name="fa7-solid:angles-right" class="text-sm" />
+            </button>
+            <button id="reset-month-btn" class="btn-plain rounded-lg w-7 h-7 flex items-center justify-center hover:bg-(--btn-plain-bg-hover) transition-colors" aria-label="Back to Today">
+                <Icon name="fa7-solid:arrow-rotate-left" class="text-sm" />
             </button>
         </div>
     </div>
@@ -255,7 +266,9 @@ const postUrlPrefix = url("/posts/");
     const resetBtn = document.getElementById('reset-month-btn');
     const prevBtn = document.getElementById('prev-month-btn');
     const nextBtn = document.getElementById('next-month-btn');
-    
+    const prevYearBtn = document.getElementById('prev-year-btn');
+    const nextYearBtn = document.getElementById('next-year-btn');
+
     if (navDisplay) {
       if (currentView === 'day') {
         if (currentLang.startsWith('zh') || currentLang.startsWith('ja')) {
@@ -275,10 +288,15 @@ const postUrlPrefix = url("/posts/");
       const isCurrent = displayYear === now.getFullYear() && displayMonth === now.getMonth();
       resetBtn.style.display = (currentView === 'day' && isCurrent) ? 'none' : 'flex';
     }
-    
-    // Hide prev/next buttons in year view as we show all years
-    if (prevBtn) prevBtn.style.visibility = currentView === 'year' ? 'hidden' : 'visible';
-    if (nextBtn) nextBtn.style.visibility = currentView === 'year' ? 'hidden' : 'visible';
+
+    // 批39 R2 可见性语义（visibility 保持不抖布局）：
+    // 月箭头仅 day 视图；年箭头 day + month 视图；year 视图四箭头全隐（列出全部年份无需导航）
+    const showMonthArrows = currentView === 'day';
+    const showYearArrows = currentView === 'day' || currentView === 'month';
+    if (prevBtn) prevBtn.style.visibility = showMonthArrows ? 'visible' : 'hidden';
+    if (nextBtn) nextBtn.style.visibility = showMonthArrows ? 'visible' : 'hidden';
+    if (prevYearBtn) prevYearBtn.style.visibility = showYearArrows ? 'visible' : 'hidden';
+    if (nextYearBtn) nextYearBtn.style.visibility = showYearArrows ? 'visible' : 'hidden';
   }
 
   function renderDayView() {
@@ -388,19 +406,26 @@ const postUrlPrefix = url("/posts/");
     }
   }
   
+  // 批39 R2：月进退收敛为仅 day 视图（month 视图的年切换由年箭头 changeYear 接管）；
+  // 跨月自动滚年
   function changeMonth(delta) {
-    if (currentView === 'day') {
-      displayMonth += delta;
-      if (displayMonth > 11) {
-          displayMonth = 0;
-          displayYear++;
-      } else if (displayMonth < 0) {
-          displayMonth = 11;
-          displayYear--;
-      }
-    } else if (currentView === 'month') {
-      displayYear += delta;
+    if (currentView !== 'day') return;
+    displayMonth += delta;
+    if (displayMonth > 11) {
+        displayMonth = 0;
+        displayYear++;
+    } else if (displayMonth < 0) {
+        displayMonth = 11;
+        displayYear--;
     }
+    renderCalendar();
+  }
+
+  // 批39 R2：年进退（day 视图 ±1 年换一批热力图/月列表；month 视图 ±1 年换月份格），
+  // year 视图箭头全隐，兜底拦一道
+  function changeYear(delta) {
+    if (currentView === 'year') return;
+    displayYear += delta;
     renderCalendar();
   }
 
@@ -423,11 +448,15 @@ const postUrlPrefix = url("/posts/");
       // Bind events
       const prevBtn = document.getElementById('prev-month-btn');
       const nextBtn = document.getElementById('next-month-btn');
+      const prevYearBtn = document.getElementById('prev-year-btn');
+      const nextYearBtn = document.getElementById('next-year-btn');
       const resetBtn = document.getElementById('reset-month-btn');
       const navDisplay = document.getElementById('current-month-display');
-      
+
       if (prevBtn) prevBtn.onclick = () => changeMonth(-1);
       if (nextBtn) nextBtn.onclick = () => changeMonth(1);
+      if (prevYearBtn) prevYearBtn.onclick = () => changeYear(-1);
+      if (nextYearBtn) nextYearBtn.onclick = () => changeYear(1);
       if (resetBtn) resetBtn.onclick = () => resetToToday();
       
       if (navDisplay) {
@@ -469,10 +498,12 @@ const postUrlPrefix = url("/posts/");
     box-shadow: 0 0 1px 1.5px var(--primary, oklch(0.55 0.15 250));
   }
 
-  /* 热力图档位（批九R4）：明暗各一套 ramp。暗色空档要明显亮过卡片底
-     （--card-bg L≈0.23，空档抬到 ≈0.37）才看得见方块；顶格向白提亮拉开层次。
-     亮色空档抄 GitHub 贡献热力图：中性灰表示「无提交」，绿色只留给有档位的；
-     亮色 primary 太浅（L≈0.70），9% 绿染对白底 ΔL 仅 0.027，故空档换灰 */
+  /* 热力图档位（批九R4 → 批39 R1）：明暗各一套 ramp。空档统一抄 GitHub 贡献
+     热力图：中性灰表示「无提交」，绿色只留给有档位的——亮色 primary 太浅
+     （L≈0.70），9% 绿染对白底 ΔL 仅 0.027 故空档换灰；暗色曾用 primary 26% 混
+     卡片底（绿调糊进暗背景，用户反馈「跟背景黏在一起」），批39 改中性灰
+     （#64748b 40%，L≈0.35 vs 卡片 0.23，灰阶与绿 ramp 明确分层），数据格
+     l1 提到 55% 拉开与空档的层次 */
   :global(.heatmap-l0) {
     background-color: color-mix(in oklab, #64748b 24%, var(--card-bg));
   }
@@ -489,10 +520,10 @@ const postUrlPrefix = url("/posts/");
     background-color: var(--primary);
   }
   :global(.dark .heatmap-l0) {
-    background-color: color-mix(in oklab, var(--primary) 26%, var(--card-bg));
+    background-color: color-mix(in oklab, #64748b 40%, var(--card-bg));
   }
   :global(.dark .heatmap-l1) {
-    background-color: color-mix(in oklab, var(--primary) 46%, var(--card-bg));
+    background-color: color-mix(in oklab, var(--primary) 55%, var(--card-bg));
   }
   :global(.dark .heatmap-l2) {
     background-color: color-mix(in oklab, var(--primary) 66%, var(--card-bg));

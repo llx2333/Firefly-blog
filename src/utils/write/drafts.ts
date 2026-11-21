@@ -824,6 +824,12 @@ export function invalidateDraftCountCache(): void {
 	} catch {
 		/* 忽略 */
 	}
+	// 批39 R3：广播失效事件——CategoryBar 监听后即时重跑 ensureDraftPill()，
+	// 胶囊计数在编辑器岛内增删/发布后立即刷新，不再等下一次页面跳转。
+	// （事件名是普通 DOM 事件，非存储键；SSR 侧 document 不存在则跳过）
+	if (typeof document !== "undefined") {
+		document.dispatchEvent(new CustomEvent("ff:draft-count-invalidated"));
+	}
 }
 
 /**
