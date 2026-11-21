@@ -254,11 +254,15 @@ export default defineConfig({
 				},
 			},
 			frames: {
-				// 批30 P4：复制按钮去掉——EC 默认 showCopyToClipboardButton: true
-				// （plugin-frames dist 默认表），整块删除会恢复默认复制按钮，必须显式 false。
-				// 圆点行（终端框 header）的去掉见上方 overridesByLang 的 frame:"none"。
-				// 行号与语言徽章分属 line-numbers / language-badge 插件，不受影响。
-				showCopyToClipboardButton: false,
+				// 批35 反转：批30 P4 曾按用户要求置 false 去掉复制按钮，实测后用户反馈
+				// 「代码块不能复制」，缺的正是这个一键入口，故翻回 true 恢复 EC 原生按钮。
+				// 机理：拷贝源=渲染时写进 button 的 data-code 属性（换行以 \u007f 占位、
+				// 复制时替换回 \n），不取 DOM 文本 → 无行号/缩进线锚污染；显隐走 plugin-frames
+				// 原生逻辑（默认隐藏、hover 显形、触屏设备常驻）；批30 去按钮后闲置的自绘
+				// 外观样式（src/styles/expressive-code.css 160-232 一段）原封未动，本开关
+				// 翻 true 即复活。overridesByLang 的 frame:"none"（去终端圆点行）与本开关
+				// 无关，保持不动；行号与语言徽章分属 line-numbers / language-badge 插件。
+				showCopyToClipboardButton: true,
 			},
 		}),
 		svelte(),
