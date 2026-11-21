@@ -1,7 +1,7 @@
 ---
 title: mapleader
 published: 2026-11-21
-draft: true
+draft: false
 description: nvim的mapleader
 tags:
   - nvim
