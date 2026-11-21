@@ -392,6 +392,18 @@ function showToast(text: string) {
 	}, 4000);
 }
 
+/** toast 传送到 body（批36）：页面内容容器带 onload transform，position:fixed
+ * 会被它劫持成相对容器定位——文章页比视口高时 toast 落在折叠线以下看不见。
+ * 挂到 body 才是真视口固定（WriteEditor 同款）。 */
+function portalToBody(node: HTMLElement) {
+	document.body.appendChild(node);
+	return {
+		destroy() {
+			node.remove();
+		},
+	};
+}
+
 // --- 隐藏 / 恢复文章卡片其余部分 ---
 
 // 编辑态一并收起的页面级元素：悬浮目录（指向已隐藏的正文标题）、移动端底部侧栏。
@@ -1036,10 +1048,14 @@ async function save() {
 			),
 			...warnings,
 		];
+		// 批36：勾选草稿保存 = 线上不可见（构建全站过滤 draft），toast 指路「未发布」入口
+		const savedAsDraft = fm.draft === true;
 		showToast(
 			allWarnings.length
-				? `已发布；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
-				: "已发布，Cloudflare 构建约 1-2 分钟后此页面才会更新为新内容",
+				? `${savedAsDraft ? "已保存为草稿（线上不显示）" : "已发布"}；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
+				: savedAsDraft
+					? "已保存为草稿：线上不显示，可在分类条「未发布」入口找到"
+					: "已发布，Cloudflare 构建约 1-2 分钟后此页面才会更新为新内容",
 		);
 	} catch (error) {
 		editorError = describeGitHubError(error);
@@ -1782,6 +1798,7 @@ async function insertAtCursor(text: string) {
 <!-- toast -->
 {#if notice}
 	<div
+		use:portalToBody
 		class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 card-base px-5 py-3 text-sm text-75 shadow-lg"
 	>
 		{notice}

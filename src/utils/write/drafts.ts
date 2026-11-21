@@ -20,6 +20,7 @@ import {
 	decodeBase64,
 	describeGitHubError,
 	encodeBase64,
+	fetchFile,
 	GitHubError,
 	ghFetch,
 	IMAGE_PUBLIC_PREFIX,
@@ -826,17 +827,53 @@ export function invalidateDraftCountCache(): void {
 }
 
 /**
- * 仅存于草稿分支的文章数（分类条「未发布」计数）＝ 草稿分支顶层目录 − master
- * 顶层目录。两边都取顶层即可：草稿只能由编辑器创建且文件名禁 `/`（子目录文章
- * 的暂存 master 上必有同路径，属「发布过的暂存」，不算「仅存」）。
+ * 「未发布」文章数（分类条计数，批36 v2）＝ 草稿分支独有文章数 + master 草稿数。
+ * - 草稿分支独有：write-drafts 分支（递归）有而 master 没有的 .md/.mdx。
+ *   早期版本只比顶层（草稿文件名禁 `/`），嵌套路径文章开放后草稿也可落子目录，
+ *   两边都改递归清单才不漏。
+ * - master 草稿：master 上 frontmatter draft: true 的文章——线上构建全站过滤
+ *   （content-utils），列表/分类/归档哪都看不见，属「未发布」同义。
+ * 两个清单都递归：master 走 listPostFiles（trees API 单请求优先，contents BFS
+ * 兜底）；草稿分支走 listDraftTree（同款 BFS）。
  */
 export async function countDraftOnlyPosts(token: string): Promise<number> {
 	const [master, drafts] = await Promise.all([
 		listPostFiles(token),
-		listDraftDir(token, POSTS_DIR),
+		listDraftTree(token, POSTS_DIR),
 	]);
 	const masterPaths = new Set(master.map((entry) => entry.path));
-	return drafts.filter(
+	const draftOnly = drafts.filter(
 		(entry) => /\.(md|mdx)$/i.test(entry.name) && !masterPaths.has(entry.path),
 	).length;
+	const masterDrafts = await countMasterDrafts(token, master);
+	return draftOnly + masterDrafts;
+}
+
+/**
+ * master 草稿数：逐文件拉原文判 frontmatter `draft: true`。
+ * allPostMeta 差集法不可行：glob loader 默认 generateId 用 frontmatter slug，
+ * 无 frontmatter 的文件映射不出 path↔id（实测线上 id=gua-zai 而文件名是
+ * 2026-11-13-gua-zai.md）。单篇拉取/解析失败不炸整批（该篇不计入，5min 缓存
+ * 过后自愈）。
+ */
+async function countMasterDrafts(
+	token: string,
+	files: readonly ContentsEntry[],
+): Promise<number> {
+	const results = await Promise.allSettled(
+		files.map(async (file) =>
+			hasDraftTrue((await fetchFile(token, file.path)).text),
+		),
+	);
+	let count = 0;
+	for (const result of results) {
+		if (result.status === "fulfilled" && result.value) count++;
+	}
+	return count;
+}
+
+/** frontmatter 头块内 `draft: true`（只看首个 --- 块，正文出现同款文本不误判） */
+function hasDraftTrue(text: string): boolean {
+	const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? "";
+	return /^draft:\s*true\b/im.test(head);
 }

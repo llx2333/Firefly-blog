@@ -32,7 +32,7 @@ import {
 	ensureDraftsBranch,
 	fetchDraftFile,
 	invalidateDraftCountCache,
-	listDraftDir,
+	listDraftTree,
 	prepareImageSaves,
 	probeDraftAgainstMaster,
 	publishPostFile,
@@ -260,6 +260,15 @@ const currentPath = $derived(
 const filenameChanged = $derived(
 	loadedPath !== null && currentPath !== "" && currentPath !== loadedPath,
 );
+/**
+ * 嵌套路径文章（如 nvim/1_start.md，批36）：文件名锁只读（跨目录改名超出本轮），
+ * 保存路径忠实于远端，插图目录随路径推导（articleSlugDir 保留嵌套层级）。
+ */
+const nestedPost = $derived(
+	loadedPath !== null &&
+		loadedPath.startsWith(`${POSTS_DIR}/`) &&
+		loadedPath.slice(POSTS_DIR.length + 1).includes("/"),
+);
 const dirty = $derived(
 	view === "editor" &&
 		!editorLoading &&
@@ -271,6 +280,8 @@ const draftOnlyItems = $derived(
 		.map(([path, name]) => ({ path, name }))
 		.sort((a, b) => b.name.localeCompare(a.name)),
 );
+/** master 上 draft: true 的文章（「未发布」分组第一节，点开走 openPost，批36） */
+const masterDraftItems = $derived(listItems.filter((item) => item.draft));
 
 $effect(() => {
 	if (!editorReady) return;
@@ -454,6 +465,18 @@ function showToast(text: string) {
 	noticeTimer = setTimeout(() => {
 		notice = "";
 	}, 4000);
+}
+
+/** toast 传送到 body（批36）：页面内容容器带 onload transform，position:fixed
+ * 会被它劫持成相对容器定位——编辑器页比视口高时 toast 落在折叠线以下看不见
+ * （实测 rect.y=1673 / 视口 900）。挂到 body 才是真视口固定。 */
+function portalToBody(node: HTMLElement) {
+	document.body.appendChild(node);
+	return {
+		destroy() {
+			node.remove();
+		},
+	};
 }
 
 // 编辑中有未持久化的修改时，关页面前给浏览器原生提示（暂存/发布后解除）
@@ -654,9 +677,10 @@ function cleanDraftsParam() {
 }
 
 /**
- * 轮询等待「云端草稿」分组渲染（loadList → loadDraftIndex → draftOnlyItems 非空
- * 是异步链，最长 10s）：等到则滚动 + 高亮 2s；列表与草稿索引都已载入且确定为空
- * → toast 提示；列表失败 → 错误横幅自会提示，不打扰。
+ * 轮询等待「未发布」分组渲染（loadList → loadDraftIndex → draftOnlyItems/master
+ * 草稿非空是异步链，最长 10s）：等到则滚动 + 高亮 2s；列表与草稿索引都已载入且
+ * 确定为空（master 草稿 0 且云端草稿 0，批36 口径）→ toast 提示；列表失败 →
+ * 错误横幅自会提示，不打扰。
  */
 async function focusDraftGroup() {
 	if (!wantsDraftFocus() || !isLoggedIn) return;
@@ -671,9 +695,14 @@ async function focusDraftGroup() {
 			return;
 		}
 		if (listError) return;
-		if (listLoaded && draftIndexLoaded && draftOnlyItems.length === 0) {
+		if (
+			listLoaded &&
+			draftIndexLoaded &&
+			draftOnlyItems.length === 0 &&
+			masterDraftItems.length === 0
+		) {
 			cleanDraftsParam();
-			showToast("暂无未发布的草稿");
+			showToast("暂无未发布文章");
 			return;
 		}
 		await new Promise((resolve) => setTimeout(resolve, 200));
@@ -732,11 +761,16 @@ async function loadList() {
 			for (;;) {
 				const file = queue.shift();
 				if (!file) break;
+				// name 承载 POSTS_DIR 相对路径（批36：嵌套文章如 nvim/1_start.md），
+				// openPost 据此反推文件名即保真路径；顶层文件与旧口径同形
+				const relPath = file.path.startsWith(`${POSTS_DIR}/`)
+					? file.path.slice(POSTS_DIR.length + 1)
+					: file.path;
 				try {
 					const { text } = await fetchFile(token, file.path);
 					const parsed = parsePostFile(text);
 					items.push({
-						name: file.name,
+						name: relPath,
 						path: file.path,
 						sha: file.sha,
 						title: parsed.frontmatter.title || file.name,
@@ -746,10 +780,10 @@ async function loadList() {
 				} catch {
 					// 单篇解析失败不阻塞列表：退化为只展示文件名
 					items.push({
-						name: file.name,
+						name: relPath,
 						path: file.path,
 						sha: file.sha,
-						title: file.name,
+						title: relPath,
 						draft: false,
 						published: "",
 					});
@@ -787,8 +821,13 @@ async function loadDraftIndex() {
 	}
 	try {
 		const map = new Map<string, string>();
-		for (const entry of await listDraftDir(token, POSTS_DIR)) {
-			if (/\.(md|mdx)$/i.test(entry.name)) map.set(entry.path, entry.name);
+		// 批36：改递归清单（嵌套文章暂存草稿落子目录，顶层列举会漏）
+		for (const entry of await listDraftTree(token, POSTS_DIR)) {
+			if (!/\.(md|mdx)$/i.test(entry.name)) continue;
+			const relPath = entry.path.startsWith(`${POSTS_DIR}/`)
+				? entry.path.slice(POSTS_DIR.length + 1)
+				: entry.path;
+			map.set(entry.path, relPath);
 		}
 		draftIndex.clear();
 		for (const [path, name] of map) draftIndex.set(path, name);
@@ -999,10 +1038,13 @@ async function openDraftOnly(path: string) {
 		fm = parsed.frontmatter;
 		body = parsed.body;
 		extras = parsed.extras;
-		const name = path.split("/").pop() ?? path;
-		fileName = name.replace(/\.(md|mdx)$/i, "");
+		// fileName 承载相对路径（与 openPost 同口径）：嵌套草稿发布回写不漂移
+		const relPath = path.startsWith(`${POSTS_DIR}/`)
+			? path.slice(POSTS_DIR.length + 1)
+			: path;
+		fileName = relPath.replace(/\.(md|mdx)$/i, "");
 		fileNameTouched = true;
-		fileExt = /\.mdx$/i.test(name) ? "mdx" : "md";
+		fileExt = /\.mdx$/i.test(relPath) ? "mdx" : "md";
 		loadedPath = path;
 		sha = null; // master 上还没有：发布即新建
 		draftSha = file.sha;
@@ -1058,8 +1100,11 @@ function validateForSave(): string {
 	if (fm.updated && !/^\d{4}-\d{2}-\d{2}$/.test(fm.updated))
 		return "更新日期（updated）格式应为 YYYY-MM-DD";
 	if (!fileName.trim()) return "文件名不能为空";
-	if (!/^[^/\\]+$/.test(fileName.trim()))
-		return "文件名不能包含 / 或 \\（多级目录暂不支持）";
+	// 批36：`\` 一律禁；`/` 仅嵌套路径文章放行（打开时文件名锁只读，路径忠实于
+	// 远端）——新建与顶层改名仍禁 `/`（跨目录改名超出本轮）
+	if (/\\/.test(fileName.trim())) return "文件名不能包含 \\";
+	if (!nestedPost && fileName.trim().includes("/"))
+		return "文件名不能包含 /（嵌套路径仅限已存在的子目录文章）";
 	// 「未发布」是保留分类名（分类条入口专指仅存草稿），真分类不得占用，防构建期撞车
 	if (fm.category.trim() === RESERVED_CATEGORY)
 		return "「未发布」是保留分类名（分类条入口专用），请换一个分类";
@@ -1095,7 +1140,11 @@ async function saveDraft() {
 		editorError = "只读模式：请先登录后再暂存草稿";
 		return;
 	}
-	if (!fileName.trim() || !/^[^/\\]+$/.test(fileName.trim())) {
+	if (
+		!fileName.trim() ||
+		/\\/.test(fileName.trim()) ||
+		(!nestedPost && fileName.trim().includes("/"))
+	) {
 		editorError = "暂存前先填好文件名：草稿按文件名存放在 write-drafts 分支";
 		return;
 	}
@@ -1311,10 +1360,14 @@ async function save() {
 			),
 			...warnings,
 		];
+		// 批36：勾选草稿保存 = 线上不可见（构建全站过滤 draft），toast 指路「未发布」入口
+		const savedAsDraft = fm.draft === true;
 		showToast(
 			allWarnings.length
-				? `已发布；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
-				: "已发布，Cloudflare 构建约 1-2 分钟后生效",
+				? `${savedAsDraft ? "已保存为草稿（线上不显示）" : "已发布"}；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
+				: savedAsDraft
+					? "已保存为草稿：线上不显示，可在分类条「未发布」入口找到"
+					: "已发布，Cloudflare 构建约 1-2 分钟后生效",
 		);
 		void loadList();
 	} catch (error) {
@@ -1694,33 +1747,64 @@ async function insertAtCursor(text: string) {
 						</button>
 					{/each}
 				</div>
-				{#if isLoggedIn && draftOnlyItems.length > 0}
+				{#if isLoggedIn && (masterDraftItems.length > 0 || draftOnlyItems.length > 0)}
 					<div
 						id={DRAFT_GROUP_ID}
 						class="mt-5 pt-4 border-t border-black/5 dark:border-white/10"
 						class:draft-group-flash={draftGroupFlash}
 					>
 						<div class="text-xs text-50 mb-1.5">
-							云端草稿 · 仅存于 {DRAFT_BRANCH} 分支，尚未发布（{draftOnlyItems.length}）
+							未发布 · 线上不可见（master 草稿 {masterDraftItems.length}，云端草稿 {draftOnlyItems.length}）
 						</div>
-						<div class="divide-y divide-black/5 dark:divide-white/10">
-							{#each draftOnlyItems as draft (draft.path)}
-								<button
-									type="button"
-									class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
-									onclick={() => void openDraftOnly(draft.path)}
-								>
-									<span class="flex-1 min-w-0 truncate text-sm text-90">
-										{draftTitles.get(draft.path) ?? draft.name}
-									</span>
-									<span
-										class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						{#if masterDraftItems.length > 0}
+							<div class="text-xs text-50 mt-2 mb-1">
+								master 草稿 · 已在仓库，线上构建过滤 draft 字段
+							</div>
+							<div class="divide-y divide-black/5 dark:divide-white/10">
+								{#each masterDraftItems as item (item.path)}
+									<button
+										type="button"
+										class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+										onclick={() => void openPost(item)}
 									>
-										草稿
-									</span>
-								</button>
-							{/each}
-						</div>
+										<span class="w-full md:w-auto md:max-w-[18rem] truncate font-mono text-xs text-50">
+											{item.name}
+										</span>
+										<span class="flex-1 min-w-0 truncate text-sm text-90">
+											{item.title}
+										</span>
+										<span
+											class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+										>
+											草稿
+										</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+						{#if draftOnlyItems.length > 0}
+							<div class="text-xs text-50 mt-2 mb-1">
+								云端草稿 · 仅存于 {DRAFT_BRANCH} 分支
+							</div>
+							<div class="divide-y divide-black/5 dark:divide-white/10">
+								{#each draftOnlyItems as draft (draft.path)}
+									<button
+										type="button"
+										class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+										onclick={() => void openDraftOnly(draft.path)}
+									>
+										<span class="flex-1 min-w-0 truncate text-sm text-90">
+											{draftTitles.get(draft.path) ?? draft.name}
+										</span>
+										<span
+											class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+										>
+											草稿
+										</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
 					</div>
 				{/if}
 			{/if}
@@ -2024,11 +2108,12 @@ async function insertAtCursor(text: string) {
 									placeholder="YYYY-MM-DD-标题拼音（自动建议）"
 									bind:value={fileName}
 									oninput={() => (fileNameTouched = true)}
+									readonly={nestedPost}
 								>
 								<span class="text-xs text-50 shrink-0 font-mono">.{fileExt}</span>
 							</div>
 							<p class="text-xs text-50 mt-1">
-								新建时按标题自动建议（中文转拼音，与 pnpm new-post 规则一致），可随时手改。{#if sha}改动文件名将另存为新文件，原文件保留。{/if}
+								新建时按标题自动建议（中文转拼音，与 pnpm new-post 规则一致），可随时手改。{#if sha}改动文件名将另存为新文件，原文件保留。{/if}{#if nestedPost}嵌套路径文章暂不支持改名（跨目录移动超出本轮）。{/if}
 							</p>
 						</div>
 						<div class="flex items-center gap-6 pt-1">
@@ -2192,6 +2277,7 @@ async function insertAtCursor(text: string) {
 	<!-- toast -->
 	{#if notice}
 		<div
+			use:portalToBody
 			class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 card-base px-5 py-3 text-sm text-75 shadow-lg"
 		>
 			{notice}

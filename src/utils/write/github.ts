@@ -186,26 +186,101 @@ export async function fetchCurrentUser(
 	return (await res.json()) as { login: string };
 }
 
-/** 文章目录列表（公开仓库匿名可读） */
+/** 文章目录列表（公开仓库匿名可读）；递归含子目录文章（如 nvim/1_start.md） */
 export async function listPostFiles(token: string): Promise<ContentsEntry[]> {
 	// GitHub 对「目录不存在」与「目录为空」都返回 404（git 树里没有空目录），
 	// 仓库 0 篇时的真实形态就是 404，按空列表处理（2026-10-25 实测）。
 	try {
-		const res = await ghFetch(
-			token,
-			`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${POSTS_DIR}?ref=${WRITE_REPO.branch}&t=${Date.now()}`,
-		);
-		const entries = (await res.json()) as ContentsEntry[];
-		if (!Array.isArray(entries)) return [];
-		return entries.filter(
-			(entry) => entry.type === "file" && /\.(md|mdx)$/i.test(entry.name),
-		);
+		return await listPostTree(token);
 	} catch (error) {
 		if (error instanceof GitHubError && error.kind === "not-found") {
 			return [];
 		}
 		throw error;
 	}
+}
+
+/**
+ * master 文章递归清单（批36：嵌套文章盲区修复）：优先 git trees API 单请求拿
+ * 全仓树（recursive=1），过滤 POSTS_DIR 下 .md/.mdx；trees 不可用（旧 PAT 权限、
+ * 限流、网络抖动等）回退 contents API 广度逐层列举（与 drafts.ts listDraftTree
+ * 同款形态，单层失败不炸整树）。返回条目 path 为仓库相对路径，name 为末段文件名。
+ */
+async function listPostTree(token: string): Promise<ContentsEntry[]> {
+	try {
+		const res = await ghFetch(
+			token,
+			`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/git/trees/${WRITE_REPO.branch}?recursive=1&t=${Date.now()}`,
+		);
+		const data = (await res.json()) as {
+			tree?: Array<{ path: string; type: string }>;
+		};
+		if (Array.isArray(data.tree)) {
+			const prefix = `${POSTS_DIR}/`;
+			return data.tree
+				.filter(
+					(node) =>
+						node.type === "blob" &&
+						node.path.startsWith(prefix) &&
+						/\.(md|mdx)$/i.test(node.path),
+				)
+				.map((node) => ({
+					name: node.path.split("/").pop() ?? node.path,
+					path: node.path,
+					sha: "",
+					type: "file",
+					size: 0,
+				}));
+		}
+	} catch {
+		// trees API 失败不致命：走 contents 逐层列举兜底
+	}
+	return listPostsContentsBfs(token);
+}
+
+/** contents API 广度优先递归列举 master 文章目录（listPostTree 的兜底路径） */
+async function listPostsContentsBfs(token: string): Promise<ContentsEntry[]> {
+	const out: ContentsEntry[] = [];
+	// 根层（POSTS_DIR 顶层）的错误不能吞：整树为空且根层失败 = 真故障（断网/401），
+	// 必须抛给调用方（否则渲染成「0 篇文章」误导）；子目录层失败按尽力而为跳过
+	let rootError: unknown = null;
+	let frontier: string[] = [POSTS_DIR];
+	let firstLayer = true;
+	while (frontier.length > 0) {
+		const next: string[] = [];
+		const layers = await Promise.all(
+			frontier.map(async (dir) => {
+				try {
+					const res = await ghFetch(
+						token,
+						`/repos/${WRITE_REPO.owner}/${WRITE_REPO.repo}/contents/${apiContentsPath(dir)}?ref=${WRITE_REPO.branch}&t=${Date.now()}`,
+					);
+					const entries = (await res.json()) as ContentsEntry[];
+					return Array.isArray(entries) ? entries : [];
+				} catch (error) {
+					if (
+						firstLayer &&
+						!(error instanceof GitHubError && error.kind === "not-found")
+					) {
+						rootError = error;
+					}
+					return []; // 单层列举失败不阻塞整树（尽力而为）
+				}
+			}),
+		);
+		firstLayer = false;
+		for (const entries of layers) {
+			for (const entry of entries) {
+				if (entry.type === "dir") next.push(entry.path);
+				else out.push(entry);
+			}
+		}
+		frontier = next;
+	}
+	if (out.length === 0 && rootError !== null) throw rootError;
+	return out.filter(
+		(entry) => entry.type === "file" && /\.(md|mdx)$/i.test(entry.name),
+	);
 }
 
 /**
