@@ -7,8 +7,8 @@
  * master 触发 Cloudflare Pages 构建。插图随文保存：插入/粘贴只存浏览器内存
  * （预览用 blob URL 即时显示），暂存/发布时才随文上传到对应分支；正文里
  * 手改路径 = 重命名、删掉引用行 = 删图，保存时统一裁决（utils/write/images）。
- * 远端 404（本地预览文章尚未提交过）→ 以当前标题起草；该路径若有云端草稿则
- * 直接载入草稿内容，发布即新建。
+ * 远端 404（本地预览文章尚未提交过）→ 以当前标题起草；该路径若有暂存草稿则
+ * 直接载入草稿内容，发布即新建。批37：补「删除文章」动作（master 与暂存副本一起清）。
  */
 import { onDestroy, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
@@ -39,6 +39,7 @@ import {
 	prepareImageSaves,
 	probeDraftAgainstMaster,
 	publishPostFile,
+	removeArticleDraftImages,
 	saveDraftPost,
 	sweepDraftImages,
 	uploadPendingImages,
@@ -59,11 +60,13 @@ import {
 	serializePostFile,
 } from "@/utils/write/frontmatter";
 import {
+	deleteFile,
 	describeGitHubError,
 	fetchCurrentUser,
 	fetchFile,
 	GitHubError,
 	POSTS_DIR,
+	WRITE_REPO,
 } from "@/utils/write/github";
 import {
 	base64ToObjectUrl,
@@ -198,12 +201,13 @@ let prefetchToken = "";
 let prefetchPromise: Promise<{ text: string; sha: string } | null> | null =
 	null;
 
-// --- 云端草稿（write-drafts 分支）---
+// --- 暂存草稿（write-drafts 分支，批37 文案统一）---
 let draftSha = $state<string | null>(null);
 let savingDraft = $state(false);
 let loadingDraft = $state(false);
 let discardingDraft = $state(false);
 let draftBanner = $state<string | null>(null); // 非空 = 有未发布草稿，值为保存时间文案
+let deleting = $state(false); // 批37：删除文章（master + 暂存副本）进行中
 
 const remotePath = `${POSTS_DIR}/${fileName}`;
 
@@ -729,7 +733,7 @@ async function loadRemote() {
 		void probeDraft(file.text);
 	} catch (error) {
 		if (error instanceof GitHubError && error.kind === "not-found") {
-			// 本地预览有、远端没有：优先续写云端草稿，其次以当前标题起草
+			// 本地预览有、远端没有：优先续写暂存草稿，其次以当前标题起草
 			try {
 				const draft = await fetchDraftFile(token, remotePath);
 				if (draft) {
@@ -740,7 +744,7 @@ async function loadRemote() {
 					sha = null;
 					draftSha = draft.sha;
 					applyDraftDefaults();
-					showToast("远端还没有这篇文章，已载入云端草稿，发布即新建");
+					showToast("远端还没有这篇文章，已载入暂存草稿，发布即新建");
 					return;
 				}
 			} catch {
@@ -776,7 +780,7 @@ async function probeDraft(masterText: string) {
 	draftBanner = probe.banner || null;
 }
 
-/** 载入云端草稿到编辑器（master sha 保留：发布时覆盖已发布版本） */
+/** 载入暂存草稿到编辑器（master sha 保留：发布时覆盖已发布版本） */
 async function loadDraftVersion() {
 	if (loadingDraft) return;
 	loadingDraft = true;
@@ -794,7 +798,7 @@ async function loadDraftVersion() {
 		draftSha = file.sha;
 		draftBanner = null;
 		applyDraftDefaults();
-		showToast("已载入云端草稿，点「发布」才会更新线上");
+		showToast("已载入暂存草稿，点「发布」才会更新线上");
 	} catch (error) {
 		editorError = describeGitHubError(error);
 	} finally {
@@ -802,12 +806,12 @@ async function loadDraftVersion() {
 	}
 }
 
-/** 丢弃云端草稿（只删草稿分支文件，编辑器内容与已发布版本都不动） */
+/** 丢弃暂存草稿（只删草稿分支文件，编辑器内容与已发布版本都不动） */
 async function discardDraft() {
 	if (discardingDraft) return;
 	if (
 		!window.confirm(
-			"确认丢弃这篇的云端草稿？编辑器内容与已发布版本都不受影响。",
+			"确认丢弃这篇的暂存草稿？编辑器内容与已发布版本都不受影响。",
 		)
 	) {
 		return;
@@ -819,7 +823,7 @@ async function discardDraft() {
 		draftSha = null;
 		draftBanner = null;
 		invalidateDraftCountCache();
-		showToast("云端草稿已丢弃");
+		showToast("暂存草稿已丢弃");
 	} catch (error) {
 		editorError = describeGitHubError(error);
 	} finally {
@@ -944,6 +948,10 @@ function kickToRelogin() {
 
 // --- 保存 ---
 
+// 「未发布」是保留分类名（frontmatter.ts 导出）；批37 起分类条入口文案改「草稿」，
+// 但本批写集不含 frontmatter.ts，这里并列校验本地常量（与 CategoryBar 文案同步）
+const RESERVED_CATEGORY_DRAFT = "草稿";
+
 function validateForSave(): string {
 	if (!fm.title.trim()) return "标题（title）不能为空";
 	if (!fm.published) return "发布日期（published）不能为空";
@@ -952,9 +960,12 @@ function validateForSave(): string {
 		return "发布日期（published）格式应为 YYYY-MM-DD";
 	if (fm.updated && !/^\d{4}-\d{2}-\d{2}$/.test(fm.updated))
 		return "更新日期（updated）格式应为 YYYY-MM-DD";
-	// 「未发布」是保留分类名（分类条入口专指仅存草稿），真分类不得占用，防构建期撞车
-	if (fm.category.trim() === RESERVED_CATEGORY)
-		return "「未发布」是保留分类名（分类条入口专用），请换一个分类";
+	// 「未发布」「草稿」是保留分类名（分类条入口专指草稿），真分类不得占用，防构建期撞车
+	if (
+		fm.category.trim() === RESERVED_CATEGORY ||
+		fm.category.trim() === RESERVED_CATEGORY_DRAFT
+	)
+		return "「未发布」「草稿」是保留分类名（分类条入口专用），请换一个分类";
 	return "";
 }
 
@@ -1048,13 +1059,13 @@ async function save() {
 			),
 			...warnings,
 		];
-		// 批36：勾选草稿保存 = 线上不可见（构建全站过滤 draft），toast 指路「未发布」入口
+		// 批36：勾选草稿保存 = 线上不可见（构建全站过滤 draft），toast 指路「草稿」入口（批37 文案）
 		const savedAsDraft = fm.draft === true;
 		showToast(
 			allWarnings.length
 				? `${savedAsDraft ? "已保存为草稿（线上不显示）" : "已发布"}；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
 				: savedAsDraft
-					? "已保存为草稿：线上不显示，可在分类条「未发布」入口找到"
+					? "已保存为草稿：线上不显示，可在分类条「草稿」入口找到"
 					: "已发布，Cloudflare 构建约 1-2 分钟后此页面才会更新为新内容",
 		);
 	} catch (error) {
@@ -1068,6 +1079,49 @@ async function save() {
 		saving = false;
 		imageUploadTotal = 0;
 		imageUploadDone = 0;
+	}
+}
+
+/**
+ * 删除文章（批37 补全）：master 上直接删（不可撤销），同时清掉暂存副本与随文
+ * 插图（尽力而为，失败不阻塞）。confirm 语义与 WriteEditor.removePost 的 master
+ * 分支一致；PostEditor 挂在文章页上，删完回首页。
+ */
+async function removePost() {
+	if (!isLoggedIn || deleting) return;
+	if (!sha) return; // 未提交过 master（仅暂存草稿态）：PostEditor 无删除路径，防御
+	const label = fm.title.trim() || fileName;
+	if (
+		!window.confirm(
+			`确认删除文章「${label}」？\n删除会直接提交到 GitHub（${WRITE_REPO.owner}/${WRITE_REPO.repo}@${WRITE_REPO.branch}），不可撤销。`,
+		)
+	) {
+		return;
+	}
+	deleting = true;
+	editorError = "";
+	try {
+		await deleteFile(token, remotePath, `write: 删除 ${label}`, sha);
+		try {
+			await deleteDraftFile(token, remotePath);
+		} catch {
+			/* 暂存副本多数情况本就不存在，清理失败不阻塞 */
+		}
+		try {
+			await removeArticleDraftImages(token, fileName);
+		} catch {
+			/* 插图清理失败不阻塞 */
+		}
+		invalidateDraftCountCache();
+		showToast("已删除，正在返回首页");
+		window.location.href = "/";
+	} catch (error) {
+		editorError = describeGitHubError(error);
+		if (error instanceof GitHubError && error.kind === "unauthorized") {
+			kickToRelogin();
+		}
+	} finally {
+		deleting = false;
 	}
 }
 
@@ -1377,7 +1431,7 @@ async function insertAtCursor(text: string) {
 						<span
 							class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
 						>
-							有云端草稿
+							有暂存草稿
 						</span>
 					{/if}
 					{#if !isLoggedIn}
@@ -1430,15 +1484,34 @@ async function insertAtCursor(text: string) {
 						class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"
 						onclick={() => void save()}
 						disabled={!isLoggedIn || saving}
-						title={isLoggedIn
-							? "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"
-							: "重新验证后才能发布"}
+						title={!isLoggedIn
+							? "重新验证后才能发布"
+							: fm.draft
+								? "保存为草稿：提交到 master，线上不显示；取消勾选「草稿」后点此发布"
+								: "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"}
 					>
 						{saving
 							? (imageUploadTotal > 0
 								? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
-								: "发布中……")
-							: "发布"}
+								: fm.draft
+									? "保存中……"
+									: "发布中……")
+							: fm.draft
+								? "保存草稿"
+								: "发布"}
+					</button>
+					<button
+						type="button"
+						class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs hover:text-red-500"
+						onclick={() => void removePost()}
+						disabled={!isLoggedIn || !sha || deleting}
+						title={!isLoggedIn
+							? "重新验证后才能删除"
+							: !sha
+								? "尚未提交过 master，无可删除的文章"
+								: "删除文章（直接提交 master 分支，不可撤销；暂存副本一并清理）"}
+					>
+						{deleting ? "删除中……" : "删除文章"}
 					</button>
 				{/if}
 			</div>
@@ -1448,7 +1521,7 @@ async function insertAtCursor(text: string) {
 					class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-75 flex flex-wrap items-center gap-3"
 				>
 					<span class="flex-1 min-w-0 leading-relaxed">
-						这篇有未发布的云端草稿（保存于 {draftBanner}），内容与当前版本不同。可继续编辑当前内容，或载入草稿。
+						这篇有未发布的暂存草稿（保存于 {draftBanner}），内容与当前版本不同。可继续编辑当前内容，或载入草稿。
 					</span>
 					<button
 						type="button"

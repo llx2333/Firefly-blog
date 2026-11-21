@@ -417,11 +417,13 @@ function initialActive(categoryName: string): {
     }
   }
 
-  // --- 「未发布」入口（登录态伪分类，客户端注入） ---
-  // 仅存于 write-drafts 分支的文章不在任何构建产物里，「未发布」因此不是构建期
-  // 分类，而是 token 持有者的浏览器实时注入：对 GitHub 数「草稿分支顶层 − master
-  // 顶层」。匿名访客无 token → 不注入、零请求；登录但暂无草稿 → 不注入。
+  // --- 「草稿」入口（登录态伪分类，客户端注入；批37 由「未发布」改名） ---
+  // 仅存于 write-drafts 分支的文章不在任何构建产物里，「草稿」因此不是构建期
+  // 分类，而是 token 持有者的浏览器实时注入：对 GitHub 数「草稿分支独有文章数 +
+  // master draft:true 文章数」（批36 v2 口径，与 countDraftOnlyPosts 同源）。
+  // 匿名访客无 token → 不注入、零请求；登录但暂无草稿 → 不注入。
   // pill 类名与模板里 category-pill 完全同款字符串，保证吃到同一份样式。
+  // data-category-name="__unpublished__" 是内部键（历史口径），对外文案只叫「草稿」。
   let draftPillBusy = false;
   async function ensureDraftPill() {
     const bar = document.getElementById("category-bar");
@@ -463,7 +465,7 @@ function initialActive(categoryName: string): {
       const badge = document.createElement("span");
       badge.className = "pill-count";
       badge.textContent = String(count);
-      pill.replaceChildren(document.createTextNode("未发布 "), badge);
+      pill.replaceChildren(document.createTextNode("草稿 "), badge);
       if (!existing) scroll.prepend(pill);
       updateScrollHint();
     } finally {

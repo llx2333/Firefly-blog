@@ -1,5 +1,5 @@
 /**
- * 云端草稿分支（write-drafts）：「暂存草稿」与「发布」分离的存储侧实现。
+ * 暂存草稿分支（write-drafts）：「暂存草稿」与「发布」分离的存储侧实现。
  *
  * - 暂存草稿：文章 md 写到 write-drafts 分支同路径，commit message 带
  *   [CI Skip]（Cloudflare Pages 对含该标记的提交跳过构建，preview 同样跳过，
@@ -768,15 +768,15 @@ export async function publishPostFile(
 	try {
 		await deleteDraftFile(token, path);
 	} catch {
-		warnings.push("云端草稿清理失败，可稍后在草稿列表手动丢弃");
+		warnings.push("暂存草稿清理失败，可稍后在草稿页手动删除");
 	}
 	return { sha, warnings };
 }
 
-// ---------- 分类条「未发布」入口（登录态伪分类） ----------
+// ---------- 分类条「草稿」入口（登录态伪分类，批37 由「未发布」改名） ----------
 
 /**
- * 「未发布」计数缓存（sessionStorage）：分类条出现在首页/归档/文章页等所有
+ * 「草稿」计数缓存（sessionStorage）：分类条出现在首页/归档/文章页等所有
  * 主网格页面，TTL 内跨页面导航零请求。暂存/丢弃/发布成功后由编辑器失效，
  * 下次导航重算。
  */
@@ -827,12 +827,12 @@ export function invalidateDraftCountCache(): void {
 }
 
 /**
- * 「未发布」文章数（分类条计数，批36 v2）＝ 草稿分支独有文章数 + master 草稿数。
+ * 「草稿」文章数（分类条计数，批36 v2 口径不动）＝ 草稿分支独有文章数 + master 草稿数。
  * - 草稿分支独有：write-drafts 分支（递归）有而 master 没有的 .md/.mdx。
  *   早期版本只比顶层（草稿文件名禁 `/`），嵌套路径文章开放后草稿也可落子目录，
  *   两边都改递归清单才不漏。
  * - master 草稿：master 上 frontmatter draft: true 的文章——线上构建全站过滤
- *   （content-utils），列表/分类/归档哪都看不见，属「未发布」同义。
+ *   （content-utils），列表/分类/归档哪都看不见，属「草稿」入口同义。
  * 两个清单都递归：master 走 listPostFiles（trees API 单请求优先，contents BFS
  * 兜底）；草稿分支走 listDraftTree（同款 BFS）。
  */

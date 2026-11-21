@@ -139,6 +139,10 @@ const inputClass =
 
 const labelClass = "block text-xs font-medium text-50 mb-1";
 
+/** 保留分类名之二（批37）：分类条入口由「未发布」改名「草稿」，真分类不得占用；
+ * 与 frontmatter.ts 的 RESERVED_CATEGORY 并列校验（该文件不在本批写集） */
+const RESERVED_CATEGORY_DRAFT = "草稿";
+
 // --- 全局状态 ---
 let view = $state<View>("login");
 let token = $state("");
@@ -231,7 +235,7 @@ const masterUploadedUrls = new Set<string>();
 /** 裁决产生的旧地址 → blob 备查：正文引用要到保存时才改写，期间预览靠它不断链 */
 const retiredPreviewUrls = new Map<string, string>();
 
-// --- 云端草稿（write-drafts 分支）---
+// --- 暂存草稿（write-drafts 分支，批37 文案统一）---
 let draftSha = $state<string | null>(null); // 草稿分支文件版本号（暂存更新 / 丢弃清理用）
 let savingDraft = $state(false);
 let loadingDraft = $state(false);
@@ -248,10 +252,10 @@ let draftIndex = new SvelteMap<string, string>();
 let draftTitles = new SvelteMap<string, string>();
 /** 最近一次持久化（master 或草稿分支）的全文快照，驱动 beforeunload 拦截 */
 let storedSnapshot = $state("");
-/** 草稿索引是否加载完（成败都算）：?drafts=1 聚焦流程「确定没有草稿」的早退依据 */
+/** 草稿索引是否加载完（成败都算）：?drafts=1 草稿页空判定「确定没有草稿」的早退依据 */
 let draftIndexLoaded = $state(false);
-/** 「云端草稿」分组聚焦高亮（?drafts=1 进入时短暂闪烁） */
-let draftGroupFlash = $state(false);
+/** ?drafts=1 = 草稿页稳定模式（批37）：期间列表区呈「已发布/未发布」两块布局，参数不再用完即清 */
+let draftsMode = $state(false);
 
 const isLoggedIn = $derived(userLogin !== null && token !== "");
 const currentPath = $derived(
@@ -282,6 +286,11 @@ const draftOnlyItems = $derived(
 );
 /** master 上 draft: true 的文章（「未发布」分组第一节，点开走 openPost，批36） */
 const masterDraftItems = $derived(listItems.filter((item) => item.draft));
+/** 已发布且有暂存草稿的文章（草稿页「已发布」块）：发布/丢弃后副本自动消失，
+ * 属瞬态不计入胶囊（§16.3-D 口径 v2 不动） */
+const publishedWithDraftItems = $derived(
+	listItems.filter((item) => !item.draft && draftIndex.has(item.path)),
+);
 
 $effect(() => {
 	if (!editorReady) return;
@@ -601,6 +610,8 @@ function forceLogout(message: string) {
 }
 
 onMount(() => {
+	// 草稿页模式只看落地 URL：?drafts=1 期间页面保持两块布局（批37 参数即模式）
+	draftsMode = wantsDraftFocus();
 	// 复用自身或 /admin（Sveltia）登录态的 token；验证通过时顺带刷新入口门控缓存
 	const saved = resolveToken();
 	if (!saved) {
@@ -656,58 +667,37 @@ function wantsNewPost() {
 	return new URLSearchParams(window.location.search).has("new");
 }
 
-/** URL 带 ?drafts=1（分类条「未发布」入口）：登录后聚焦「云端草稿」分组 */
+/** URL 带 ?drafts=1（分类条「草稿」入口，批37）：进入草稿页稳定模式 */
 function wantsDraftFocus() {
 	return new URLSearchParams(window.location.search).has("drafts");
 }
 
-/** 草稿分组容器 id（模板内分组容器同款；?drafts=1 的聚焦目标） */
+/** 草稿分组容器 id（模板内未发布块同款） */
 const DRAFT_GROUP_ID = "draft-group";
 
-/** ?drafts=1 用完即清：刷新 / 分享链接不再触发聚焦 */
-function cleanDraftsParam() {
-	const url = new URL(window.location.href);
-	if (!url.searchParams.has("drafts")) return;
-	url.searchParams.delete("drafts");
-	window.history.replaceState(
-		{},
-		"",
-		`${url.pathname}${url.search}${url.hash}`,
-	);
-}
-
 /**
- * 轮询等待「未发布」分组渲染（loadList → loadDraftIndex → draftOnlyItems/master
- * 草稿非空是异步链，最长 10s）：等到则滚动 + 高亮 2s；列表与草稿索引都已载入且
- * 确定为空（master 草稿 0 且云端草稿 0，批36 口径）→ toast 提示；列表失败 →
+ * 草稿页空判定（批37：?drafts=1 参数即模式，不再滚动聚焦/闪烁/清参数）：
+ * 登录态等列表与草稿索引载入完成（最长 10s），三块全空（master 草稿 /
+ * 暂存独有 / 已发布有副本）→ 一次性 toast「暂无草稿」；列表失败 →
  * 错误横幅自会提示，不打扰。
  */
 async function focusDraftGroup() {
 	if (!wantsDraftFocus() || !isLoggedIn) return;
 	for (let waited = 0; waited < 10_000; waited += 200) {
 		await tick();
-		const group = document.getElementById(DRAFT_GROUP_ID);
-		if (group) {
-			cleanDraftsParam();
-			group.scrollIntoView({ behavior: "smooth", block: "center" });
-			draftGroupFlash = true;
-			setTimeout(() => (draftGroupFlash = false), 2000);
-			return;
-		}
 		if (listError) return;
-		if (
-			listLoaded &&
-			draftIndexLoaded &&
-			draftOnlyItems.length === 0 &&
-			masterDraftItems.length === 0
-		) {
-			cleanDraftsParam();
-			showToast("暂无未发布文章");
+		if (listLoaded && draftIndexLoaded) {
+			if (
+				masterDraftItems.length === 0 &&
+				draftOnlyItems.length === 0 &&
+				publishedWithDraftItems.length === 0
+			) {
+				showToast("暂无草稿");
+			}
 			return;
 		}
 		await new Promise((resolve) => setTimeout(resolve, 200));
 	}
-	cleanDraftsParam();
 }
 
 async function handleLogin() {
@@ -812,7 +802,7 @@ async function loadList() {
 	}
 }
 
-/** 拉草稿分支目录索引（仅登录态；失败静默，只影响徽标与「云端草稿」分组） */
+/** 拉草稿分支目录索引（仅登录态；失败静默，只影响徽标与「暂存草稿」分组） */
 async function loadDraftIndex() {
 	if (!isLoggedIn) {
 		draftIndex.clear();
@@ -1019,7 +1009,7 @@ async function probeDraft(path: string, masterText: string) {
 }
 
 /**
- * 打开仅存于草稿分支的文章（列表「云端草稿」分组入口）：
+ * 打开仅存于草稿分支的文章（列表「暂存草稿」分组入口）：
  * master 上还没有这个文件，发布后才会成为正式文章。
  */
 async function openDraftOnly(path: string) {
@@ -1052,7 +1042,7 @@ async function openDraftOnly(path: string) {
 		tagsInput = fm.tags.join(", ");
 		seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
 		storedSnapshot = serializePostFile(fm, extras, body);
-		showToast("已载入云端草稿：点「发布」后才会成为正式文章");
+		showToast("已载入暂存草稿：点「发布」后才会成为正式文章");
 	} catch (error) {
 		editorError = describeGitHubError(error);
 		view = "list";
@@ -1105,9 +1095,14 @@ function validateForSave(): string {
 	if (/\\/.test(fileName.trim())) return "文件名不能包含 \\";
 	if (!nestedPost && fileName.trim().includes("/"))
 		return "文件名不能包含 /（嵌套路径仅限已存在的子目录文章）";
-	// 「未发布」是保留分类名（分类条入口专指仅存草稿），真分类不得占用，防构建期撞车
-	if (fm.category.trim() === RESERVED_CATEGORY)
-		return "「未发布」是保留分类名（分类条入口专用），请换一个分类";
+	// 「未发布」「草稿」是保留分类名（分类条「草稿」入口专用，批37 入口改名后
+	// 旧名一并保留拒绝），真分类不得占用，防构建期撞车
+	if (
+		fm.category.trim() === RESERVED_CATEGORY ||
+		fm.category.trim() === RESERVED_CATEGORY_DRAFT
+	) {
+		return "「未发布」「草稿」是保留分类名（分类条入口专用），请换一个分类";
+	}
 	return "";
 }
 
@@ -1233,7 +1228,7 @@ async function saveDraft() {
 	}
 }
 
-/** 载入云端草稿到编辑器（master sha 保留：发布时覆盖已发布版本） */
+/** 载入暂存草稿到编辑器（master sha 保留：发布时覆盖已发布版本） */
 async function loadDraftVersion() {
 	if (!loadedPath || loadingDraft) return;
 	loadingDraft = true;
@@ -1253,7 +1248,7 @@ async function loadDraftVersion() {
 		tagsInput = fm.tags.join(", ");
 		seriesOrderInput = fm.seriesOrder == null ? "" : String(fm.seriesOrder);
 		storedSnapshot = serializePostFile(fm, extras, body);
-		showToast("已载入云端草稿，点「发布」才会更新线上");
+		showToast("已载入暂存草稿，点「发布」才会更新线上");
 	} catch (error) {
 		editorError = describeGitHubError(error);
 	} finally {
@@ -1261,12 +1256,12 @@ async function loadDraftVersion() {
 	}
 }
 
-/** 丢弃云端草稿（只删草稿分支文件，编辑器内容与已发布版本都不动） */
+/** 丢弃暂存草稿（只删草稿分支文件，编辑器内容与已发布版本都不动） */
 async function discardDraft() {
 	if (!loadedPath || discardingDraft) return;
 	if (
 		!window.confirm(
-			"确认丢弃这篇的云端草稿？编辑器内容与已发布版本都不受影响。",
+			"确认丢弃这篇的暂存草稿？编辑器内容与已发布版本都不受影响。",
 		)
 	) {
 		return;
@@ -1280,7 +1275,7 @@ async function discardDraft() {
 		draftIndex.delete(loadedPath);
 		draftTitles.delete(loadedPath);
 		invalidateDraftCountCache();
-		showToast("云端草稿已丢弃");
+		showToast("暂存草稿已丢弃");
 	} catch (error) {
 		editorError = describeGitHubError(error);
 	} finally {
@@ -1360,13 +1355,13 @@ async function save() {
 			),
 			...warnings,
 		];
-		// 批36：勾选草稿保存 = 线上不可见（构建全站过滤 draft），toast 指路「未发布」入口
+		// 批36：勾选草稿保存 = 线上不可见（构建全站过滤 draft），toast 指路「草稿」入口（批37 改名）
 		const savedAsDraft = fm.draft === true;
 		showToast(
 			allWarnings.length
 				? `${savedAsDraft ? "已保存为草稿（线上不显示）" : "已发布"}；${allWarnings.length} 项收尾提示：${allWarnings[0]}`
 				: savedAsDraft
-					? "已保存为草稿：线上不显示，可在分类条「未发布」入口找到"
+					? "已保存为草稿：线上不显示，可在分类条「草稿」入口找到"
 					: "已发布，Cloudflare 构建约 1-2 分钟后生效",
 		);
 		void loadList();
@@ -1410,21 +1405,42 @@ async function reloadRemote() {
 	}
 }
 
+/**
+ * 删除（批37 补全双语义）：sha 在 = master 文章删除（confirm 含仓库名，
+ * 暂存副本/插图残留一并清理）；sha 空 + draftSha 在 = 仅存于草稿分支的暂存
+ * 草稿，只删 write-drafts 分支副本（此前这类草稿在编辑器无删除路径）；
+ * 纯新建（两者皆空）按钮禁用，兜底不动作。
+ */
 async function removePost() {
-	if (!loadedPath || !sha || deleting) return;
+	if (!loadedPath || deleting || !isLoggedIn) return;
 	const label = fm.title.trim() || fileName;
-	if (
-		!window.confirm(
-			`确认删除文章「${label}」？\n删除会直接提交到 GitHub（${WRITE_REPO.owner}/${WRITE_REPO.repo}@${WRITE_REPO.branch}），不可撤销。`,
-		)
-	) {
-		return;
+	if (sha) {
+		if (
+			!window.confirm(
+				`确认删除文章「${label}」？\n删除会直接提交到 GitHub（${WRITE_REPO.owner}/${WRITE_REPO.repo}@${WRITE_REPO.branch}），不可撤销。`,
+			)
+		) {
+			return;
+		}
+	} else if (draftSha) {
+		if (
+			!window.confirm(
+				`确认删除暂存草稿「${label}」？只删 ${DRAFT_BRANCH} 分支的副本，master 不受影响。`,
+			)
+		) {
+			return;
+		}
+	} else {
+		return; // 纯新建：按钮已禁用，走不到这里
 	}
 	deleting = true;
 	editorError = "";
 	try {
-		await deleteFile(token, loadedPath, `write: 删除 ${label}`, sha);
-		// 草稿分支残留一并清理：正文 md + 本文插图子目录（都失败不影响删除本体）
+		if (sha) {
+			await deleteFile(token, loadedPath, `write: 删除 ${label}`, sha);
+		}
+		// 暂存副本与本文插图子目录一并清理（都失败不影响删除本体）；
+		// 仅存草稿时上面跳过 master 删除，这里的 deleteDraftFile 就是删除本体
 		try {
 			await deleteDraftFile(token, loadedPath);
 		} catch {
@@ -1439,6 +1455,7 @@ async function removePost() {
 			/* 忽略 */
 		}
 		draftIndex.delete(loadedPath);
+		draftTitles.delete(loadedPath);
 		invalidateDraftCountCache();
 		draftSha = null;
 		draftBanner = null;
@@ -1588,7 +1605,82 @@ async function insertAtCursor(text: string) {
 </script>
 
 <div class="flex w-full flex-col gap-4" onpaste={(event) => void handlePaste(event)}>
-	{#if authChecking}
+		<!-- 未发布块（批37 抽成公共片段）：草稿页与非草稿模式共用同一份结构。
+				inDraftsPage=true 时两小节始终显示（空则灰字），且 master 行带「有草稿」徽标 -->
+		{#snippet unpublishedGroup(inDraftsPage: boolean)}
+			<div class="text-xs text-50 mb-1.5">
+				未发布 · 线上不可见（master 草稿 {masterDraftItems.length}，暂存草稿 {draftOnlyItems.length}）
+			</div>
+			{#if masterDraftItems.length > 0 || inDraftsPage}
+				<div class="text-xs text-50 mt-2 mb-1">
+					master 草稿 · 已在仓库，线上构建过滤 draft 字段
+				</div>
+				{#if masterDraftItems.length === 0}
+					{#if inDraftsPage}
+						<div class="py-3 text-center text-50 text-xs">无 master 草稿</div>
+					{/if}
+				{:else}
+					<div class="divide-y divide-black/5 dark:divide-white/10">
+						{#each masterDraftItems as item (item.path)}
+							<button
+								type="button"
+								class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+								onclick={() => void openPost(item)}
+							>
+								<span class="w-full md:w-auto md:max-w-[18rem] truncate font-mono text-xs text-50">
+									{item.name}
+								</span>
+								<span class="flex-1 min-w-0 truncate text-sm text-90">
+									{item.title}
+								</span>
+								{#if inDraftsPage && draftIndex.has(item.path)}
+									<span
+										class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+									>
+										有草稿
+									</span>
+								{/if}
+								<span
+									class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+								>
+									草稿
+								</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+			{#if draftOnlyItems.length > 0 || inDraftsPage}
+				<div class="text-xs text-50 mt-2 mb-1">
+					暂存草稿 · 仅存于 {DRAFT_BRANCH} 分支
+				</div>
+				{#if draftOnlyItems.length === 0}
+					{#if inDraftsPage}
+						<div class="py-3 text-center text-50 text-xs">无暂存草稿</div>
+					{/if}
+				{:else}
+					<div class="divide-y divide-black/5 dark:divide-white/10">
+						{#each draftOnlyItems as draft (draft.path)}
+							<button
+								type="button"
+								class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+								onclick={() => void openDraftOnly(draft.path)}
+							>
+								<span class="flex-1 min-w-0 truncate text-sm text-90">
+									{draftTitles.get(draft.path) ?? draft.name}
+								</span>
+								<span
+									class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+								>
+									草稿
+								</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+		{/snippet}
+		{#if authChecking}
 		<div class="card-base px-6 md:px-9 py-10 rounded-(--radius-large) text-center text-50">
 			正在恢复登录状态……
 		</div>
@@ -1640,7 +1732,17 @@ async function insertAtCursor(text: string) {
 		<!-- 2. 列表视图 -->
 		<div class="card-base px-6 md:px-9 py-6 rounded-(--radius-large) w-full">
 			<div class="flex flex-wrap items-center gap-3 mb-5">
-				<div class="text-2xl font-bold text-90 flex-1 min-w-0">文章列表</div>
+				<div class="flex items-baseline gap-3 flex-1 min-w-0">
+					<div class="text-2xl font-bold text-90">
+						{draftsMode ? "草稿" : "文章列表"}
+					</div>
+					{#if draftsMode}
+						<!-- 草稿页唯一出口（批37）：返回全量列表 -->
+						<a href="/write/" class="text-xs text-50 hover:text-(--primary) transition-colors">
+							全部文章
+						</a>
+					{/if}
+				</div>
 				{#if isLoggedIn}
 					<span class="text-xs text-50">已登录：<span class="text-90">{userLogin}</span></span>
 					<button
@@ -1701,6 +1803,60 @@ async function insertAtCursor(text: string) {
 						重试
 					</button>
 				</div>
+			{:else if draftsMode}
+				<!-- 草稿页（批37）：只看「已发布 · 有暂存草稿」+「未发布」两块，不渲染全量列表 -->
+				{#if !isLoggedIn}
+					<div class="py-8 text-center text-50 text-sm border-b border-black/5 dark:border-white/10">
+						登录后可见草稿
+					</div>
+					<div class="py-8 text-center text-50 text-sm">
+						登录后可见草稿
+					</div>
+				{:else}
+					<!-- 块一：已发布且有暂存草稿的文章（发布/丢弃后副本消失，自动离开本块） -->
+					<div id="published-drafts-block">
+						<div class="text-xs text-50 mb-1.5">
+							已发布 · 有暂存草稿（{publishedWithDraftItems.length}）
+						</div>
+						<div class="text-xs text-50 mb-1">
+							线上显示的是已发布版本，下面这些改动还没发布；点开可继续编辑或发布
+						</div>
+						{#if publishedWithDraftItems.length === 0}
+							<div class="py-4 text-center text-50 text-xs">
+								无——已发布且没草稿的文章不显示在草稿页
+							</div>
+						{:else}
+							<div class="divide-y divide-black/5 dark:divide-white/10">
+								{#each publishedWithDraftItems as item (item.path)}
+									<button
+										type="button"
+										class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
+										onclick={() => void openPost(item)}
+									>
+										<span class="w-full md:w-auto md:max-w-[18rem] truncate font-mono text-xs text-50">
+											{item.name}
+										</span>
+										<span class="flex-1 min-w-0 truncate text-sm text-90">
+											{item.title}
+										</span>
+										<span
+											class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
+										>
+											有草稿
+										</span>
+										<span class="shrink-0 text-xs text-50 tabular-nums">
+											{item.published || "—"}
+										</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					<!-- 块二：未发布（master 草稿 + 暂存草稿），与全量列表共用片段 -->
+					<div id={DRAFT_GROUP_ID} class="mt-5 pt-4 border-t border-black/5 dark:border-white/10">
+						{@render unpublishedGroup(true)}
+					</div>
+				{/if}
 			{:else if listItems.length === 0}
 				<!-- 空状态：当前仓库 0 篇属预期 -->
 				<div class="py-10 text-center text-50 text-sm leading-relaxed">
@@ -1748,63 +1904,8 @@ async function insertAtCursor(text: string) {
 					{/each}
 				</div>
 				{#if isLoggedIn && (masterDraftItems.length > 0 || draftOnlyItems.length > 0)}
-					<div
-						id={DRAFT_GROUP_ID}
-						class="mt-5 pt-4 border-t border-black/5 dark:border-white/10"
-						class:draft-group-flash={draftGroupFlash}
-					>
-						<div class="text-xs text-50 mb-1.5">
-							未发布 · 线上不可见（master 草稿 {masterDraftItems.length}，云端草稿 {draftOnlyItems.length}）
-						</div>
-						{#if masterDraftItems.length > 0}
-							<div class="text-xs text-50 mt-2 mb-1">
-								master 草稿 · 已在仓库，线上构建过滤 draft 字段
-							</div>
-							<div class="divide-y divide-black/5 dark:divide-white/10">
-								{#each masterDraftItems as item (item.path)}
-									<button
-										type="button"
-										class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
-										onclick={() => void openPost(item)}
-									>
-										<span class="w-full md:w-auto md:max-w-[18rem] truncate font-mono text-xs text-50">
-											{item.name}
-										</span>
-										<span class="flex-1 min-w-0 truncate text-sm text-90">
-											{item.title}
-										</span>
-										<span
-											class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-										>
-											草稿
-										</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-						{#if draftOnlyItems.length > 0}
-							<div class="text-xs text-50 mt-2 mb-1">
-								云端草稿 · 仅存于 {DRAFT_BRANCH} 分支
-							</div>
-							<div class="divide-y divide-black/5 dark:divide-white/10">
-								{#each draftOnlyItems as draft (draft.path)}
-									<button
-										type="button"
-										class="w-full flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 py-3 -mx-2 rounded-lg text-left hover:bg-(--btn-plain-bg-hover) transition-colors"
-										onclick={() => void openDraftOnly(draft.path)}
-									>
-										<span class="flex-1 min-w-0 truncate text-sm text-90">
-											{draftTitles.get(draft.path) ?? draft.name}
-										</span>
-										<span
-											class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400"
-										>
-											草稿
-										</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
+					<div id={DRAFT_GROUP_ID} class="mt-5 pt-4 border-t border-black/5 dark:border-white/10">
+						{@render unpublishedGroup(false)}
 					</div>
 				{/if}
 			{/if}
@@ -1896,8 +1997,16 @@ async function insertAtCursor(text: string) {
 					type="button"
 					class="btn-plain rounded-(--radius-large) px-4 h-9 text-xs hover:text-red-500"
 					onclick={() => void removePost()}
-					disabled={!sha || !loadedPath || !isLoggedIn || deleting}
-					title={isLoggedIn ? "" : "登录后才能删除"}
+					disabled={(!sha && !draftSha) || !loadedPath || !isLoggedIn || deleting}
+					title={
+						!isLoggedIn
+							? "登录后才能删除"
+							: sha
+								? `删除文章（直接提交 ${WRITE_REPO.branch} 分支，不可撤销）`
+								: draftSha
+									? "删除暂存草稿（只删 write-drafts 分支副本，master 不受影响）"
+									: ""
+					}
 				>
 					{deleting ? "删除中……" : "删除"}
 				</button>
@@ -1921,15 +2030,21 @@ async function insertAtCursor(text: string) {
 					class="btn-regular rounded-(--radius-large) px-6 h-9 text-sm"
 					onclick={() => void save()}
 					disabled={!isLoggedIn || saving}
-					title={isLoggedIn
-						? "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"
-						: "登录后才能发布"}
+					title={!isLoggedIn
+						? "登录后才能发布"
+						: fm.draft
+							? "保存为草稿：提交到 master，线上不显示；取消勾选「草稿」后点此发布"
+							: "提交到 master 分支并触发 Cloudflare 构建（约 1-2 分钟上线）"}
 				>
 					{saving
 						? (imageUploadTotal > 0
 							? `上传插图 ${imageUploadDone}/${imageUploadTotal}……`
-							: "发布中……")
-						: "发布"}
+							: fm.draft
+								? "保存中……"
+								: "发布中……")
+						: fm.draft
+							? "保存草稿"
+							: "发布"}
 				</button>
 			</div>
 
@@ -1938,7 +2053,7 @@ async function insertAtCursor(text: string) {
 					class="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-75 flex flex-wrap items-center gap-3"
 				>
 					<span class="flex-1 min-w-0 leading-relaxed">
-						这篇有未发布的云端草稿（保存于 {draftBanner}），内容与当前版本不同。可继续编辑当前内容，或载入草稿。
+						这篇有未发布的暂存草稿（保存于 {draftBanner}），内容与当前版本不同。可继续编辑当前内容，或载入草稿。
 					</span>
 					<button
 						type="button"
@@ -2284,21 +2399,3 @@ async function insertAtCursor(text: string) {
 		</div>
 	{/if}
 </div>
-
-<style>
-	/* ?drafts=1 进入时「云端草稿」分组的聚焦高亮：--primary 低透明度起闪，2s 渐隐 */
-	.draft-group-flash {
-		animation: draft-group-flash 2s ease-out both;
-	}
-	@keyframes draft-group-flash {
-		0%,
-		25% {
-			background-color: color-mix(in srgb, var(--primary) 12%, transparent);
-			box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) 12%, transparent);
-		}
-		100% {
-			background-color: transparent;
-			box-shadow: 0 0 0 8px transparent;
-		}
-	}
-</style>
