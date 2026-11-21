@@ -498,12 +498,13 @@ const postUrlPrefix = url("/posts/");
     box-shadow: 0 0 1px 1.5px var(--primary, oklch(0.55 0.15 250));
   }
 
-  /* 热力图档位（批九R4 → 批39 R1）：明暗各一套 ramp。空档统一抄 GitHub 贡献
-     热力图：中性灰表示「无提交」，绿色只留给有档位的——亮色 primary 太浅
-     （L≈0.70），9% 绿染对白底 ΔL 仅 0.027 故空档换灰；暗色曾用 primary 26% 混
-     卡片底（绿调糊进暗背景，用户反馈「跟背景黏在一起」），批39 改中性灰
-     （#64748b 40%，L≈0.35 vs 卡片 0.23，灰阶与绿 ramp 明确分层），数据格
-     l1 提到 55% 拉开与空档的层次 */
+  /* 热力图档位（批九R4 → 批39 R1 → 批40 R1）：明暗各一套 ramp。空档统一抄
+     GitHub 贡献热力图：中性灰表示「无提交」，绿色只留给有档位的——亮色
+     primary 太浅（L≈0.70），9% 绿染对白底 ΔL 仅 0.027 故空档换灰；暗色曾用
+     primary 26% 混卡片底（绿调糊进暗背景），批39 改中性灰 #64748b 40%
+     （L≈0.36），用户复评仍「黑乎乎的和背景黏在一块」——壁纸模式卡片实显
+     rgb(23 23 23 / 0.88)（表观 L≈0.21），ΔL≈0.15 不够剥出瓷砖感，批40 提到
+     65%（L≈0.44，ΔL≈0.22）；数据格 l1-l4 绿 hue 与灰空档色相分离，不动 */
   :global(.heatmap-l0) {
     background-color: color-mix(in oklab, #64748b 24%, var(--card-bg));
   }
@@ -520,7 +521,7 @@ const postUrlPrefix = url("/posts/");
     background-color: var(--primary);
   }
   :global(.dark .heatmap-l0) {
-    background-color: color-mix(in oklab, #64748b 40%, var(--card-bg));
+    background-color: color-mix(in oklab, #64748b 65%, var(--card-bg));
   }
   :global(.dark .heatmap-l1) {
     background-color: color-mix(in oklab, var(--primary) 55%, var(--card-bg));
