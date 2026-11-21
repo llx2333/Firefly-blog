@@ -155,9 +155,9 @@ const postUrlPrefix = url("/posts/");
     container.style.display = currentView === 'day' ? 'block' : 'none';
     if (currentView !== 'day') return;
 
-    // Render month labels (numbers 1-12)
+    // Render month labels (numbers 1-12)；批41：选中月标签主题色加粗，跟随切月
     monthsEl.innerHTML = Array.from({length: 12}, (_, i) =>
-      `<span class="text-[10px] text-neutral-400 dark:text-neutral-400 text-center">${i + 1}</span>`
+      `<span class="text-[10px] text-center ${i === displayMonth ? 'text-(--primary) font-bold' : 'text-neutral-400 dark:text-neutral-400'}">${i + 1}</span>`
     ).join('');
 
     // Build weekly post counts: heatmapData[month][week] = count
@@ -186,7 +186,9 @@ const postUrlPrefix = url("/posts/");
           .replace('{month}', month + 1)
           .replace('{week}', week + 1)
           .replace('{count}', count);
-        cellsHtml += `<div class="heatmap-cell heatmap-l${count === 0 ? 0 : level} rounded-sm" data-tooltip="${tooltip}" data-month="${month}"></div>`;
+        // 批41：热力图跟随选中月——非选中月整列压暗（hover 恢复全亮），年总览保留
+        const dim = month === displayMonth ? '' : ' heatmap-dim';
+        cellsHtml += `<div class="heatmap-cell heatmap-l${count === 0 ? 0 : level}${dim} rounded-sm" data-tooltip="${tooltip}" data-month="${month}"></div>`;
       }
     }
     gridEl.innerHTML = cellsHtml;
@@ -492,10 +494,18 @@ const postUrlPrefix = url("/posts/");
     width: 85%;
     aspect-ratio: 1;
     margin: auto;
-    transition: box-shadow 0.15s ease;
+    transition: box-shadow 0.15s ease, opacity 0.15s ease;
   }
   :global(.heatmap-cell:hover) {
     box-shadow: 0 0 1px 1.5px var(--primary, oklch(0.55 0.15 250));
+  }
+  /* 批41 R2：跟随选中月——非选中月整列压暗，hover 单格恢复全亮；
+     压暗只走 opacity，不碰批39/40 的 ramp 配色，明暗主题同规则 */
+  :global(.heatmap-cell.heatmap-dim) {
+    opacity: 0.35;
+  }
+  :global(.heatmap-cell.heatmap-dim:hover) {
+    opacity: 1;
   }
 
   /* 热力图档位（批九R4 → 批39 R1 → 批40 R1）：明暗各一套 ramp。空档统一抄
