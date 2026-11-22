@@ -49,8 +49,10 @@ const postUrlPrefix = url("/posts/");
 
 <WidgetLayout name={i18n(I18nKey.calendar)} showTitle={showTitle} id="calendar-widget" class={className} style={style}>
   <div class="calendar-container">
-    <!-- 批39 R2：头部 [<<][<] 标题 [>][>>][↺]——月箭头外侧各加一对年箭头，
-         回今日 ↺ 保留在右组最外（默认当前月隐藏，常态完全对称） -->
+    <!-- 批39 R2：头部 [<<][<] 标题 [>][>>][↺]——月箭头外侧各加一对年箭头；
+         批43 R4：↺ 当前月改占位隐藏（visibility，见 updateHeader）——原
+         display:none↔flex 会把 ›/» 各挤左移一个按钮位（» 恰落 › 原位，
+         连点「下月」第二次按成「下一年」），占位后整行按钮位置恒定 -->
     <div class="flex justify-between items-center mb-2">
         <!-- 批39 布局微调：w-7/gap-1 保证 ↺ 显形时标题仍单行（246px 容器实测） -->
         <div class="flex gap-1">
@@ -288,7 +290,10 @@ const postUrlPrefix = url("/posts/");
     if (resetBtn) {
       const now = new Date();
       const isCurrent = displayYear === now.getFullYear() && displayMonth === now.getMonth();
-      resetBtn.style.display = (currentView === 'day' && isCurrent) ? 'none' : 'flex';
+      // 批43 R4：display:none↔flex 会让右组 [›][»][↺] 增缩、›/» 各左移一个按钮位
+      // （» 恰落 › 原位，连点「下月」第二次按成「下一年」）；改 visibility 占位
+      // 隐藏，按钮位置恒定，离开当前月时 ↺ 原地浮现（visibility:hidden 不可点）
+      resetBtn.style.visibility = (currentView === 'day' && isCurrent) ? 'hidden' : 'visible';
     }
 
     // 批39 R2 可见性语义（visibility 保持不抖布局）：
@@ -505,15 +510,17 @@ const postUrlPrefix = url("/posts/");
     box-shadow: inset 0 0 0 1px var(--hm-ring), 0 0 1px 1.5px var(--primary, oklch(0.55 0.15 250));
   }
   /* 批41 R2：跟随选中月——非选中月整列压暗，hover 单格恢复全亮；
-     压暗只走 opacity，不碰批39/40 的 ramp 配色，明暗主题同规则 */
+     压暗只走 opacity，不碰批39/40 的 ramp 配色，明暗主题同规则。
+     批43 R2：0.35→0.6——×0.35 叠在淡填充+描边上后非选中列几乎隐形
+     （用户复评「根本看不出来」），减档保可见度，0.6 vs 1 的差仍够跟随感 */
   :global(.heatmap-cell.heatmap-dim) {
-    opacity: 0.35;
+    opacity: 0.6;
   }
   :global(.heatmap-cell.heatmap-dim:hover) {
     opacity: 1;
   }
 
-  /* 热力图档位（批九R4 → 批39 R1 → 批40 R1 → 批42 R2）：明暗各一套。空档统一抄
+  /* 热力图档位（批九R4 → 批39 R1 → 批40 R1 → 批42 R2 → 批43 R2）：明暗各一套。空档统一抄
      GitHub 贡献热力图：中性灰表示「无提交」，绿色只留给有档位的——亮色
      primary 太浅（L≈0.70），9% 绿染对白底 ΔL 仅 0.027 故空档换灰；暗色曾用
      primary 26% 混卡片底（绿调糊进暗背景），批39 改中性灰 #64748b 40%
@@ -521,11 +528,24 @@ const postUrlPrefix = url("/posts/");
      rgb(23 23 23 / 0.88)（表观 L≈0.21），ΔL≈0.15 不够剥出瓷砖感，批40 提到
      65%（L≈0.44，ΔL≈0.22）；批42 用户复评仍「看不清、粘一起」，填充提亮轴
      （40%→65% 两档）收益见顶，空格填充退役改透明+细描边显形（GitHub 暗色
-     空格同款），描边经 --hm-ring 变量走 inset box-shadow；数据格 l1-l4 绿
-     hue 与灰空档色相分离，不动 */
+     空格同款），描边经 --hm-ring 变量走 inset box-shadow；批43 用户三评
+     「更看不清，描边及方块内部颜色跟背景颜色都很相近」——纯透明=内部与卡底
+     零对比、0.2 alpha 描边太淡，再叠批41 ×0.35 压暗后有效 alpha≈0.07 全隐形；
+     批42 已修好缝距结构（列缝 ~5.75px/行缝 4px），空格加淡填充+描边加重
+     （暗 0.2→0.4/亮 0.3→0.45），压暗减档 0.6（用户三档拍板选①「淡填充+
+     重描边+压暗减档」）；填充首版用不透明 color-mix 卡底提亮，b43-v1 探针
+     量化不过——wallpaper 模式卡片是半透明面（缝隙=卡底叠照片，基线随照片
+     漂移），不透明颜料对漂移基线 ΔY 仅 0.024；改半透明罩染（暗
+     rgba(203,213,225,.15) / 亮 rgba(71,85,105,.08)）：对比度=α×(罩色−表面)
+     随表面自适应，任何壁纸下 ΔY≈0.04~0.07 恒稳（GitHub 暗色空格 fill>
+     canvas 同方向）；数据格 l1-l4 绿 hue 与灰空档色相分离，不动 */
   :global(.heatmap-l0) {
-    background-color: transparent;
-    --hm-ring: rgba(100, 116, 139, 0.3);
+    /* 批43 R1 终版：半透明罩染而非不透明颜料——wallpaper 模式卡片是半透明面
+       （缝隙基线随照片漂移，b43-v1 实测 Y 0.146~0.169），不透明 color-mix
+       颜料对漂移基线 ΔY 仅 0.024；罩染对比度=α×(罩色−表面) 随表面自适应，
+       任何壁纸下 ΔY≈0.04~0.07 恒稳 */
+    background-color: rgba(71, 85, 105, 0.08);
+    --hm-ring: rgba(100, 116, 139, 0.45);
   }
   :global(.heatmap-l1) {
     background-color: color-mix(in oklab, var(--primary) 38%, var(--card-bg));
@@ -540,8 +560,8 @@ const postUrlPrefix = url("/posts/");
     background-color: var(--primary);
   }
   :global(.dark .heatmap-l0) {
-    background-color: transparent;
-    --hm-ring: rgba(203, 213, 225, 0.2);
+    background-color: rgba(203, 213, 225, 0.15);
+    --hm-ring: rgba(203, 213, 225, 0.4);
   }
   :global(.dark .heatmap-l1) {
     background-color: color-mix(in oklab, var(--primary) 55%, var(--card-bg));
