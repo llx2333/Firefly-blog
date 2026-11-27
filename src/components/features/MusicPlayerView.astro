@@ -1,4 +1,5 @@
 ---
+import { Icon } from "astro-icon/components";
 import { musicPlayerConfig } from "@/config/musicConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
@@ -33,8 +34,9 @@ const viewConfigStr = JSON.stringify({
 <!-- 播放列表条目模板：所有 widget 共用一份 -->
 <template id="playlist-item-template">
 <div class="playlist-item flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-neutral-50 dark:hover:bg-white/5 transition-colors group">
-    <div class="w-8 h-8 rounded-md overflow-hidden shrink-0 relative bg-neutral-200 dark:bg-neutral-700">
-        <img src="" class="item-cover w-full h-full object-cover" loading="lazy" alt="" />
+    <div class="w-8 h-8 rounded-md overflow-hidden shrink-0 relative bg-(--primary)/10 flex items-center justify-center">
+        <Icon name="material-symbols:music-note-rounded" class="text-sm text-(--primary) opacity-40 absolute" aria-hidden="true" />
+        <img src="" class="item-cover w-full h-full object-cover relative z-10 opacity-0 transition-opacity duration-300" loading="lazy" alt="" />
         <!-- Active Indicator overlay with animated equalizer / play icon -->
         <div class="item-active-overlay absolute inset-0 bg-(--primary)/20 hidden items-center justify-center">
             <div class="eq-bars flex items-end gap-[2px] h-3.5">
@@ -296,7 +298,13 @@ const viewConfigStr = JSON.stringify({
             var title = clone.querySelector('.item-title');
             var artist = clone.querySelector('.item-artist');
 
-            img.src = track.pic || '';
+            if (track.pic) {
+                img.src = track.pic;
+                img.classList.remove('opacity-0');
+            } else {
+                img.src = '';
+                img.classList.add('opacity-0');
+            }
             img.alt = track.name + ' - ' + track.artist;
             title.innerText = track.name;
             artist.innerText = track.artist;
