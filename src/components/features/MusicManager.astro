@@ -98,7 +98,7 @@ const managerConfigStr = JSON.stringify({
     var audio = document.createElement('audio');
     audio.crossOrigin = 'anonymous';
     audio.style.display = 'none';
-    audio.preload = 'none'; // 阻止浏览器预加载和自动恢复播放
+    audio.preload = 'metadata'; // 仅取时长元数据（进度条可先拖、总时长可显示），音频数据仍按需加载
     document.body.appendChild(audio);
     audio.pause(); // 确保不自动播放
 
@@ -206,10 +206,77 @@ const managerConfigStr = JSON.stringify({
     var currentTrackUrlIndex = 0;
     var errorSkipTimeout = null;
 
-    function tryPlayCurrentTrackUrl(autoPlay, ver) {
+    // ── Range 支持探测 + blob 兜底 ─────────────────────────────
+    // 主站（Workers 静态资源）不支持 Range：seek 时浏览器发 Range 却收到 200 全量
+    // 响应，媒体管线直接回到 0 秒。同源 mp3 在探测不支持时改整文件转 blob 播放
+    // （seek 落在本地，不受服务器影响）；支持 206 的环境仍走原生流式，零额外开销。
+    var rangeSupported = null; // null=未探测
+    var currentBlobUrl = null;
+    var needsUrlResolution = false; // 本地曲 + 无 Range，等真正起播时再解析
+
+    function isLocalTrackUrl(u) {
+        return u.charAt(0) === '/';
+    }
+
+    async function probeRangeSupport(u) {
+        if (rangeSupported !== null) return rangeSupported;
+        try {
+            var r = await fetch(u, { headers: { Range: 'bytes=0-1' } });
+            rangeSupported = r.status === 206;
+            if (r.body && r.body.cancel) await r.body.cancel(); // 不支持时立刻丢弃全量响应
+        } catch (e) {
+            rangeSupported = true; // 探测失败按支持处理，维持原有流式行为
+        }
+        return rangeSupported;
+    }
+
+    function releaseBlobUrl() {
+        if (currentBlobUrl) {
+            URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = null;
+        }
+    }
+
+    async function tryPlayCurrentTrackUrl(autoPlay, ver) {
         if (ver !== loadVersion) return;
         var playUrl = currentTrackUrls[currentTrackUrlIndex];
+
+        // 先停掉旧资源并同步 UI，避免解析期间旧歌继续播/状态错乱
+        audio.pause();
+        state.isPlaying = false;
+        emit('fm:play-state', { isPlaying: false });
+
+        if (isLocalTrackUrl(playUrl)) {
+            var supported = await probeRangeSupport(playUrl);
+            if (ver !== loadVersion) return;
+            // 服务器不支持 Range 且非主动起播（init 预载）：不白拉全量 mp3，
+            // 记下待解析状态，等 togglePlay 真正起播时再转 blob
+            if (!supported && !autoPlay) {
+                needsUrlResolution = true;
+                return;
+            }
+        }
+        await resolveAndPlay(autoPlay, ver, playUrl);
+    }
+
+    async function resolveAndPlay(autoPlay, ver, playUrl) {
+        needsUrlResolution = false;
+        if (isLocalTrackUrl(playUrl) && rangeSupported === false) {
+            try {
+                var r = await fetch(playUrl);
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                var blob = await r.blob();
+                if (ver !== loadVersion) return;
+                playUrl = URL.createObjectURL(blob);
+            } catch (e) {
+                console.warn('Blob fallback failed, using original URL:', e);
+            }
+        }
+        if (ver !== loadVersion) return;
+
         audio.src = playUrl;
+        releaseBlobUrl();
+        currentBlobUrl = playUrl.indexOf('blob:') === 0 ? playUrl : null;
 
         if (autoPlay) {
             audio.play().then(function () {
@@ -266,6 +333,11 @@ const managerConfigStr = JSON.stringify({
 
     // ── Playback controls ────────────────────────────────────
     function togglePlay() {
+        if (needsUrlResolution) {
+            // 首次起播前 blob 还没解析（无 Range 服务器），现在解析并起播
+            tryPlayCurrentTrackUrl(true, loadVersion);
+            return;
+        }
         if (audio.paused) {
             audio.play().then(function () {
                 state.isPlaying = true;

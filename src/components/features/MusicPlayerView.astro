@@ -1,5 +1,4 @@
 ---
-import { Icon } from "astro-icon/components";
 import { musicPlayerConfig } from "@/config/musicConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
@@ -35,7 +34,10 @@ const viewConfigStr = JSON.stringify({
 <template id="playlist-item-template">
 <div class="playlist-item flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-neutral-50 dark:hover:bg-white/5 transition-colors group">
     <div class="w-8 h-8 rounded-md overflow-hidden shrink-0 relative bg-(--primary)/10 flex items-center justify-center">
-        <Icon name="material-symbols:music-note-rounded" class="text-sm text-(--primary) opacity-40 absolute" aria-hidden="true" />
+        <!-- 内联 SVG 而非 <Icon>：astro-icon 把去重后的 sprite <symbol> 落在全页首个
+             使用点，一旦落进 <template>（inert、不在文档树里），所有 <use> 都解析不到，
+             导航栏音乐按钮图标会消失，直到播放列表首次克隆模板才恢复 -->
+        <svg class="text-sm text-(--primary) opacity-40 absolute" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7.175 19.825Q6 18.65 6 17t1.175-2.825T10 13q.575 0 1.063.138t.937.412V4q0-.425.288-.712T13 3h4q.425 0 .713.288T18 4v2q0 .425-.288.713T17 7h-3v10q0 1.65-1.175 2.825T10 21t-2.825-1.175"/></svg>
         <img src="" class="item-cover w-full h-full object-cover relative z-10 opacity-0 transition-opacity duration-300" loading="lazy" alt="" />
         <!-- Active Indicator overlay with animated equalizer / play icon -->
         <div class="item-active-overlay absolute inset-0 bg-(--primary)/20 hidden items-center justify-center">
@@ -607,6 +609,40 @@ const viewConfigStr = JSON.stringify({
             var percent = Math.min(Math.max(clickX / rect.width, 0), 1);
             mgr.seek(percent);
         });
+
+        // ── 进度条拖动 seek（pointer 事件同时覆盖鼠标与触屏）──────
+        var progressDragging = false;
+        function seekPercentFromEvent(e) {
+            var rect = ui.progressContainer.getBoundingClientRect();
+            return Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+        }
+        function applyProgressUI(pct) {
+            ui.progressBar.style.width = pct + '%';
+            ui.progressThumb.style.left = pct + '%';
+            ui.progressContainer.setAttribute('aria-valuenow', Math.round(pct).toString());
+        }
+        ui.progressContainer.addEventListener('pointerdown', function (e) {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            if (!(mgr.getState().duration > 0)) return; // 时长未加载（尚未起播）时不响应
+            progressDragging = true;
+            try { ui.progressContainer.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            var pct = seekPercentFromEvent(e);
+            applyProgressUI(pct);
+            mgr.seek(pct);
+        });
+        ui.progressContainer.addEventListener('pointermove', function (e) {
+            if (!progressDragging) return;
+            var pct = seekPercentFromEvent(e);
+            applyProgressUI(pct);
+            mgr.seek(pct);
+        });
+        function endProgressDrag(e) {
+            if (!progressDragging) return;
+            progressDragging = false;
+            try { ui.progressContainer.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        }
+        ui.progressContainer.addEventListener('pointerup', endProgressDrag);
+        ui.progressContainer.addEventListener('pointercancel', endProgressDrag);
 
         // ── Drawer logic (local state) ───────────────────────────
         ui.btnLrc.addEventListener('click', function () {
