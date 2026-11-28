@@ -561,6 +561,9 @@ const viewConfigStr = JSON.stringify({
         });
 
         on('fm:time', function (e) {
+            // 拖动进度条期间跳过：timeupdate 的真实播放位置会持续把圆点从鼠标
+            // 位置拽回旧播放位置（鬼畜跳变），拖动中的 UI 由拖动逻辑全权接管
+            if (progressDragging) return;
             var d = e.detail;
             ui.progressBar.style.width = d.progress + '%';
             ui.progressThumb.style.left = d.progress + '%';
@@ -603,6 +606,32 @@ const viewConfigStr = JSON.stringify({
             mgr.setVolume(val);
         });
 
+        // ── 音量条拖动调节（原本只绑 click，细条按住拖动无响应）────
+        // setPointerCapture 让指针划出细条后事件继续派发，setVolume 即时
+        // 广播 fm:volume，UI 跟随无对抗源
+        var volDragging = false;
+        function volumeFromEvent(e) {
+            var rect = ui.volContainer.getBoundingClientRect();
+            return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        }
+        ui.volContainer.addEventListener('pointerdown', function (e) {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            volDragging = true;
+            try { ui.volContainer.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            mgr.setVolume(volumeFromEvent(e));
+        });
+        ui.volContainer.addEventListener('pointermove', function (e) {
+            if (!volDragging) return;
+            mgr.setVolume(volumeFromEvent(e));
+        });
+        function endVolumeDrag(e) {
+            if (!volDragging) return;
+            volDragging = false;
+            try { ui.volContainer.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        }
+        ui.volContainer.addEventListener('pointerup', endVolumeDrag);
+        ui.volContainer.addEventListener('pointercancel', endVolumeDrag);
+
         ui.progressContainer.addEventListener('click', function (e) {
             var rect = ui.progressContainer.getBoundingClientRect();
             var clickX = e.clientX - rect.left;
@@ -611,15 +640,35 @@ const viewConfigStr = JSON.stringify({
         });
 
         // ── 进度条拖动 seek（pointer 事件同时覆盖鼠标与触屏）──────
+        // 注意 pct 是 0-1 小数，写样式前必须 ×100（上一次误把小数直接当
+        // 百分比，圆点每次 move 都砸回起点）。拖动期间 fm:time 被挂起，
+        // seek 节流 120ms 防止高频 pointermove 打爆音频 seek，松手补一次定位
         var progressDragging = false;
+        var lastDragSeekAt = 0;
         function seekPercentFromEvent(e) {
             var rect = ui.progressContainer.getBoundingClientRect();
             return Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
         }
+        function fmtTime(sec) {
+            if (!isFinite(sec) || sec < 0) sec = 0;
+            var m = Math.floor(sec / 60);
+            var s = Math.floor(sec % 60);
+            return m + ':' + (s < 10 ? '0' + s : s);
+        }
         function applyProgressUI(pct) {
-            ui.progressBar.style.width = pct + '%';
-            ui.progressThumb.style.left = pct + '%';
-            ui.progressContainer.setAttribute('aria-valuenow', Math.round(pct).toString());
+            var pctVal = pct * 100;
+            var dur = mgr.getState().duration;
+            ui.progressBar.style.width = pctVal + '%';
+            ui.progressThumb.style.left = pctVal + '%';
+            ui.progressContainer.setAttribute('aria-valuenow', Math.round(pctVal).toString());
+            ui.currentTime.innerText = fmtTime(pct * dur);
+            if (dur > 0) ui.totalTime.innerText = fmtTime(dur);
+        }
+        function dragSeek(pct, force) {
+            var now = Date.now();
+            if (!force && now - lastDragSeekAt < 120) return;
+            lastDragSeekAt = now;
+            mgr.seek(pct);
         }
         ui.progressContainer.addEventListener('pointerdown', function (e) {
             if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -628,18 +677,19 @@ const viewConfigStr = JSON.stringify({
             try { ui.progressContainer.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
             var pct = seekPercentFromEvent(e);
             applyProgressUI(pct);
-            mgr.seek(pct);
+            dragSeek(pct, true);
         });
         ui.progressContainer.addEventListener('pointermove', function (e) {
             if (!progressDragging) return;
             var pct = seekPercentFromEvent(e);
             applyProgressUI(pct);
-            mgr.seek(pct);
+            dragSeek(pct, false);
         });
         function endProgressDrag(e) {
             if (!progressDragging) return;
             progressDragging = false;
             try { ui.progressContainer.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            if (e.type === 'pointerup') dragSeek(seekPercentFromEvent(e), true); // 松手精确定位
         }
         ui.progressContainer.addEventListener('pointerup', endProgressDrag);
         ui.progressContainer.addEventListener('pointercancel', endProgressDrag);
